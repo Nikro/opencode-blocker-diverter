@@ -1,0 +1,26 @@
+{
+  "name": "opencode-blocker-diverter",
+  "version": "1.0.0",
+  "description": "> OpenCode plugin for autonomous overnight sessions — intercept blockers, continue work, review in the morning.",
+  "main": "index.js",
+  "scripts": {
+    "test": "bun test ./.opencode/plugin/blocker-diverter/*.test.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nikro/opencode-blocker-diverter.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Nikro/opencode-blocker-diverter/issues"
+  },
+  "homepage": "https://github.com/Nikro/opencode-blocker-diverter#readme",
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.1.63",
+    "bun-types": "^1.3.9",
+    "typescript": "^5.9.3"
+  }
+}
