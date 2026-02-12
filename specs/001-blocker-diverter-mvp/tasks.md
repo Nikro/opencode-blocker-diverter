@@ -6,7 +6,7 @@
 - **Data Model**: ✅ [data-model.md](./data-model.md)
 - **Research**: ✅ [research.md](./research.md)
 - **Tasks**: 📋 This file
-- **Progress**: 1/16 tasks complete
+- **Progress**: 2/16 tasks complete
 
 ## Principles
 - **TDD Strict**: Write `.test.ts` **BEFORE** source file for every module.
@@ -38,7 +38,7 @@
   - `bun test types.test.ts` passes 100%.
 - Deps: None.
 
-**TASK-002** 🔴 **config.ts** (45 min)
+**TASK-002** ✅ **config.ts** (45 min)
 - Files: `.opencode/plugin/blocker-diverter/config.test.ts`, `config.ts`
 - Impl: `ConfigSchema` Zod + `loadConfig()` reading `opencode.json`.
 - TDD: Mock `Bun.file()`, validate defaults, error cases.
