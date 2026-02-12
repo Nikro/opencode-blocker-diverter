@@ -122,10 +122,11 @@ export interface SessionState {
   blockers: Blocker[]
 
   /** 
-   * Cooldown hashes for deduplication
+   * Cooldown hashes for deduplication with expiry tracking
+   * Maps hash → expiry timestamp (ms since epoch)
    * Prevents logging the same blocker multiple times within cooldown window
    */
-  cooldownHashes: Set<string>
+  cooldownHashes: Map<string, number>
 
   /** 
    * Timestamp (ms since epoch) of the last blocker event

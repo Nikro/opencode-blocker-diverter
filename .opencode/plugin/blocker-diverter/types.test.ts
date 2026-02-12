@@ -91,7 +91,7 @@ describe('types.ts', () => {
         enabled: true,
         divertBlockers: true,
         blockers: [],
-        cooldownHashes: new Set<string>(),
+        cooldownHashes: new Map<string, number>(),
         lastBlockerTime: Date.now(),
         repromptCount: 0,
         recentResponseHashes: [],
@@ -101,7 +101,7 @@ describe('types.ts', () => {
       expect(state.enabled).toBe(true)
       expect(state.divertBlockers).toBe(true)
       expect(state.blockers).toBeArray()
-      expect(state.cooldownHashes).toBeInstanceOf(Set)
+      expect(state.cooldownHashes).toBeInstanceOf(Map)
       expect(state.recentResponseHashes).toBeArray()
     })
 
@@ -121,7 +121,7 @@ describe('types.ts', () => {
             blocksProgress: true
           }
         ],
-        cooldownHashes: new Set(['hash1', 'hash2']),
+        cooldownHashes: new Map([['hash1', now + 10000], ['hash2', now + 20000]]),
         lastBlockerTime: now,
         repromptCount: 3,
         recentResponseHashes: ['resp1', 'resp2'],
@@ -205,7 +205,7 @@ describe('types.ts', () => {
         enabled: true,
         divertBlockers: true,
         blockers: [],
-        cooldownHashes: new Set(),
+        cooldownHashes: new Map(),
         lastBlockerTime: 0,
         repromptCount: 0,
         recentResponseHashes: [],
@@ -337,7 +337,7 @@ describe('types.ts', () => {
         enabled: 'true',
         divertBlockers: true,
         blockers: [],
-        cooldownHashes: new Set(),
+        cooldownHashes: new Map(),
         lastBlockerTime: 0,
         repromptCount: 0,
         recentResponseHashes: [],
@@ -349,14 +349,14 @@ describe('types.ts', () => {
         enabled: true,
         divertBlockers: true,
         blockers: 'not an array',
-        cooldownHashes: new Set(),
+        cooldownHashes: new Map(),
         lastBlockerTime: 0,
         repromptCount: 0,
         recentResponseHashes: [],
         lastRepromptTime: 0
       }
       
-      // @ts-expect-error - cooldownHashes must be Set
+      // @ts-expect-error - cooldownHashes must be Map<string, number>
       const invalidCooldown: SessionState = {
         enabled: true,
         divertBlockers: true,
