@@ -6,7 +6,7 @@
 - **Data Model**: ✅ [data-model.md](./data-model.md)
 - **Research**: ✅ [research.md](./research.md)
 - **Tasks**: 📋 This file
-- **Progress**: 2/16 tasks complete
+- **Progress**: 3/16 tasks complete
 
 ## Principles
 - **TDD Strict**: Write `.test.ts` **BEFORE** source file for every module.
@@ -48,7 +48,7 @@
   - Tests cover happy path + 3 error cases, 90% coverage.
 - Deps: TASK-001.
 
-**TASK-003** 🔴 **state.ts** (30 min)
+**TASK-003** ✅ **state.ts** (30 min)
 - Files: `.opencode/plugin/blocker-diverter/state.test.ts`, `state.ts`
 - Impl: `Map<string, SessionState>`, `getState()`, `updateState()`, `cleanupState()`.
 - TDD: Test init, get, update, delete, edge (missing session).

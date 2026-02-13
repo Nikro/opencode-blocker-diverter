@@ -1,17 +1,22 @@
 {
+  "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
     "lib": ["ES2022"],
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "outDir": "./dist",
+    "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "noEmit": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
     "types": ["bun-types"]
   },
-  "include": [".opencode/**/*"],
-  "exclude": ["node_modules"]
+  "include": ["index.ts", "src/**/*"],
+  "exclude": ["node_modules", "dist", "tests", ".opencode", "logs", "blockers.md"]
 }

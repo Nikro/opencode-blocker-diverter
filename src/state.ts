@@ -29,7 +29,7 @@ export function getState(sessionId: string): SessionState {
       enabled: true,
       divertBlockers: true,
       blockers: [],
-      cooldownHashes: new Set<string>(),
+      cooldownHashes: new Map<string, number>(),
       lastBlockerTime: Date.now(),
       repromptCount: 0,
       recentResponseHashes: [],
@@ -54,7 +54,7 @@ export function getState(sessionId: string): SessionState {
  * @example
  * updateState('session-123', (state) => {
  *   state.repromptCount++
- *   state.cooldownHashes.add('hash-abc')
+ *   state.cooldownHashes.set('hash-abc', Date.now() + 30000)
  * })
  */
 export function updateState(

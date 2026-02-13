@@ -8,8 +8,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test'
-import { generateBlockerHash, isInCooldown, addToCooldown } from '../../utils/dedupe'
-import type { SessionState, PluginConfig } from '../../types'
+import { generateBlockerHash, isInCooldown, addToCooldown } from '../../src/utils/dedupe'
+import type { SessionState, PluginConfig } from '../../src/types'
 
 describe('generateBlockerHash', () => {
   describe('hash generation', () => {

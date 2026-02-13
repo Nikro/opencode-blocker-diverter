@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { resolve } from 'path'
 
 // Import will be available after implementation
-import { ConfigSchema, loadConfig } from '../config'
+import { ConfigSchema, loadConfig } from '../src/config'
 
 describe('ConfigSchema', () => {
   it('should validate a complete valid config', () => {

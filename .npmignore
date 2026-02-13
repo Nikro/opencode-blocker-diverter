@@ -1,0 +1,51 @@
+# Source files (only ship dist/)
+src/
+index.ts
+tests/
+*.test.ts
+
+# Development files
+tsconfig.json
+.editorconfig
+.eslintrc*
+.prettierrc*
+
+# Documentation (keep README.md, LICENSE)
+docs/
+.specify/
+specs/
+*.md
+!README.md
+
+# Build artifacts
+*.tsbuildinfo
+coverage/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+
+# Logs and temp
+logs/
+*.log
+*.tmp
+.cache/
+
+# Environment
+.env*
+
+# Bun
+bun.lockb
+
+# Analysis files
+STRUCTURE-*.md

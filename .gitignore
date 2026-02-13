@@ -24,6 +24,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
+logs/
+
+# Plugin outputs
+blockers.md
 
 # OS
 .DS_Store
@@ -45,3 +49,6 @@ Thumbs.db
 
 # Bun
 bun.lockb
+
+# Downloaded references (temporary)
+/tmp/

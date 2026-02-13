@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { getState, updateState, cleanupState } from '../state'
+import { getState, updateState, cleanupState } from '../src/state'
 
 describe('state.ts - Session State Management', () => {
   const sessionId1 = 'test-session-1'
@@ -28,7 +28,7 @@ describe('state.ts - Session State Management', () => {
       expect(state.enabled).toBe(true)
       expect(state.divertBlockers).toBe(true)
       expect(state.blockers).toEqual([])
-      expect(state.cooldownHashes).toBeInstanceOf(Set)
+      expect(state.cooldownHashes).toBeInstanceOf(Map)
       expect(state.cooldownHashes.size).toBe(0)
       expect(state.lastBlockerTime).toBeTypeOf('number')
       expect(state.lastBlockerTime).toBeGreaterThan(0)
@@ -53,11 +53,11 @@ describe('state.ts - Session State Management', () => {
       expect(state1.cooldownHashes).not.toBe(state2.cooldownHashes)
     })
 
-    it('should ensure cooldownHashes is a new Set for each session', () => {
+    it('should ensure cooldownHashes is a new Map for each session', () => {
       const state1 = getState(sessionId1)
       const state2 = getState(sessionId2)
 
-      state1.cooldownHashes.add('hash1')
+      state1.cooldownHashes.set('hash1', Date.now() + 30000)
 
       expect(state1.cooldownHashes.has('hash1')).toBe(true)
       expect(state2.cooldownHashes.has('hash1')).toBe(false)
@@ -131,7 +131,7 @@ describe('state.ts - Session State Management', () => {
           sessionId: sessionId1,
           blocksProgress: false
         })
-        s.cooldownHashes.add('hash123')
+        s.cooldownHashes.set('hash123', Date.now() + 30000)
         s.recentResponseHashes.push('response-hash-1')
         s.lastRepromptTime = Date.now()
       })
@@ -235,7 +235,7 @@ describe('state.ts - Session State Management', () => {
         sessionId: sessionId1,
         blocksProgress: true
       })
-      state1.cooldownHashes.add('hash-1')
+      state1.cooldownHashes.set('hash-1', Date.now() + 30000)
       state1.recentResponseHashes.push('resp-1')
       state1.repromptCount = 10
       state1.lastBlockerTime = 5000

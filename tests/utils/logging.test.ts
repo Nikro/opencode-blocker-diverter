@@ -13,8 +13,8 @@
  */
 
 import { describe, it, expect, mock } from 'bun:test'
-import { logInfo, logWarn, logError, logDebug } from '../../utils/logging'
-import type { LogClient } from '../../config'
+import { logInfo, logWarn, logError, logDebug } from '../../src/utils/logging'
+import type { LogClient } from '../../src/config'
 
 describe('utils/logging', () => {
   describe('logInfo', () => {
