@@ -10,6 +10,8 @@ import {
 } from '../../src/utils/templates'
 import type { PluginConfig } from '../../src/types'
 
+// NOTE: sanitizeBlockerText tests moved to templates.sanitize-blocker.test.ts
+
 describe('templates utility', () => {
   describe('PromptMessage structure validation', () => {
     it('getBlockerResponse returns correct structure', () => {
@@ -386,4 +388,7 @@ describe('templates utility', () => {
       }
     })
   })
+
+  // NOTE: sanitizeBlockerText tests moved to templates.sanitize-blocker.test.ts
+  // to comply with constitution 500-line limit per file
 })
