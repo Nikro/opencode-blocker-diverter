@@ -11,7 +11,25 @@ import { loadConfig, type LogClient } from "../config";
 import { handlePermissionAsked, type PermissionOutput } from "../hooks/permission";
 import { createSessionHooks } from "../hooks/session";
 import { createSystemPromptHook } from "../hooks/system-prompt";
-import { logInfo } from "../utils/logging";
+import { handleBlockersCommand } from "../commands/blockers-cmd";
+import { logInfo, logError } from "../utils/logging";
+
+/**
+ * TUI command input structure
+ * OpenCode SDK type for tui.command.execute hook
+ */
+interface CommandInput {
+  command: string;
+  args?: string[];
+  sessionID: string;
+}
+
+/**
+ * TUI command output structure (currently unused)
+ */
+interface CommandOutput {
+  // Empty for now, OpenCode may add fields in future
+}
 
 /**
  * Plugin factory function
@@ -69,5 +87,30 @@ export const createPlugin: Plugin = async (ctx) => {
 
     // System prompt transformation - inject blocker diversion instructions
     ...systemPromptHooks,
+
+    // Command hook - handle /blockers command
+    "tui.command.execute": async (input: CommandInput, output: CommandOutput) => {
+      // Validate required inputs
+      if (!input.sessionID || typeof input.command !== 'string') {
+        await logError(
+          logClient,
+          'Invalid command input: missing sessionID or command'
+        );
+        return;
+      }
+      
+      // Only handle /blockers command, ignore all others
+      if (input.command === "/blockers") {
+        // Extract first argument as subcommand
+        const subcommand = input.args?.[0];
+        
+        // Route to command handler with context
+        await handleBlockersCommand(subcommand, {
+          client: logClient,
+          sessionId: input.sessionID,
+          config,
+        });
+      }
+    },
   };
 };

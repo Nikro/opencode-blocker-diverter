@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock, spyOn } from 'bun:test'
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test'
 import type { Plugin, PluginConfig } from "../../src/types"
 import { createSystemPromptHook } from "../../src/hooks/system-prompt"
 import { getState, cleanupState } from "../../src/state"
@@ -11,7 +11,7 @@ import * as templates from "../../src/utils/templates"
 describe("System Prompt Hook - Security & Injection Prevention", () => {
   let mockContext: Parameters<Plugin>[0]
   let mockConfig: PluginConfig
-  const testSessionId = "test-session-123"
+  const testSessionId = "test-session-security"
   
   beforeEach(() => {
     // Clean up state from previous tests
@@ -46,6 +46,11 @@ describe("System Prompt Hook - Security & Injection Prevention", () => {
       directory: "/test/worktree",
       worktree: "/test/worktree"
     } as unknown as Parameters<Plugin>[0]
+  })
+
+  afterEach(() => {
+    // Clean up state after tests
+    cleanupState(testSessionId)
   })
 
   describe("Content Sanitization", () => {

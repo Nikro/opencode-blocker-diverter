@@ -29,6 +29,10 @@ describe('permission hook - handlePermissionAsked', () => {
     // Clean up session state
     cleanupState(testSessionId)
 
+    // Initialize fresh state with correct defaults
+    const state = getState(testSessionId)
+    state.divertBlockers = true
+
     // Mock client with logging and session.prompt
     mockClient = {
       app: {

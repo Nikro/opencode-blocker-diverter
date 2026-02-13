@@ -207,4 +207,179 @@ describe('createPlugin', () => {
       hooks['experimental.chat.system.transform']!(mockInput as any, mockOutput)
     ).resolves.toBeUndefined()
   })
+
+  describe('Command Registration', () => {
+    it('should register tui.command.execute hook', async () => {
+      const mockContext = createMockContext()
+      
+      const hooks = await createPlugin(mockContext)
+      
+      expect('tui.command.execute' in hooks).toBe(true)
+      expect(typeof hooks['tui.command.execute']).toBe('function')
+    })
+    
+    it('should route /blockers status command', async () => {
+      const mockContext = createMockContext()
+      const logSpy = mockContext.client.app.log
+      
+      const hooks = await createPlugin(mockContext)
+      
+      // Clear initialization logs
+      logSpy.mockClear()
+      
+      // Call command hook with status subcommand
+      await hooks['tui.command.execute']!({
+        command: '/blockers',
+        args: ['status'],
+        sessionID: 'test-session'
+      } as any, {})
+      
+      // Should have logged status message
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('Blocker Diverter Status')
+        })
+      )
+    })
+    
+    it('should route /blockers on command', async () => {
+      const mockContext = createMockContext()
+      const logSpy = mockContext.client.app.log
+      
+      const hooks = await createPlugin(mockContext)
+      
+      // Clear initialization logs
+      logSpy.mockClear()
+      
+      // Call command hook with on subcommand
+      await hooks['tui.command.execute']!({
+        command: '/blockers',
+        args: ['on'],
+        sessionID: 'test-session'
+      } as any, {})
+      
+      // Should have logged enable message
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('enabled')
+        })
+      )
+    })
+    
+    it('should route /blockers off command', async () => {
+      const mockContext = createMockContext()
+      const logSpy = mockContext.client.app.log
+      
+      const hooks = await createPlugin(mockContext)
+      
+      // Clear initialization logs
+      logSpy.mockClear()
+      
+      // Call command hook with off subcommand
+      await hooks['tui.command.execute']!({
+        command: '/blockers',
+        args: ['off'],
+        sessionID: 'test-session'
+      } as any, {})
+      
+      // Should have logged disable message
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('disabled')
+        })
+      )
+    })
+    
+    it('should route /blockers list command', async () => {
+      const mockContext = createMockContext()
+      const logSpy = mockContext.client.app.log
+      
+      const hooks = await createPlugin(mockContext)
+      
+      // Clear initialization logs
+      logSpy.mockClear()
+      
+      // Call command hook with list subcommand
+      await hooks['tui.command.execute']!({
+        command: '/blockers',
+        args: ['list'],
+        sessionID: 'test-session'
+      } as any, {})
+      
+      // Should have logged list or no blockers message (case-insensitive)
+      const calls = logSpy.mock.calls
+      const hasBlockersMessage = calls.some((call: any) => 
+        call[0]?.message?.toLowerCase().includes('blocker')
+      )
+      expect(hasBlockersMessage).toBe(true)
+    })
+    
+    it('should show help when no subcommand provided', async () => {
+      const mockContext = createMockContext()
+      const logSpy = mockContext.client.app.log
+      
+      const hooks = await createPlugin(mockContext)
+      
+      // Clear initialization logs
+      logSpy.mockClear()
+      
+      // Call command hook without args
+      await hooks['tui.command.execute']!({
+        command: '/blockers',
+        args: [],
+        sessionID: 'test-session'
+      } as any, {})
+      
+      // Should have logged help message
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('Blocker Diverter Commands')
+        })
+      )
+    })
+    
+    it('should ignore non-blockers commands', async () => {
+      const mockContext = createMockContext()
+      const logSpy = mockContext.client.app.log
+      
+      const hooks = await createPlugin(mockContext)
+      
+      // Clear any previous calls
+      logSpy.mockClear()
+      
+      // Call with different command
+      await hooks['tui.command.execute']!({
+        command: '/other',
+        args: [],
+        sessionID: 'test-session'
+      } as any, {})
+      
+      // Should not have logged anything
+      expect(logSpy).not.toHaveBeenCalled()
+    })
+    
+    it('should handle invalid subcommands', async () => {
+      const mockContext = createMockContext()
+      const logSpy = mockContext.client.app.log
+      
+      const hooks = await createPlugin(mockContext)
+      
+      // Clear initialization logs
+      logSpy.mockClear()
+      
+      // Call command hook with invalid subcommand
+      await hooks['tui.command.execute']!({
+        command: '/blockers',
+        args: ['invalid'],
+        sessionID: 'test-session'
+      } as any, {})
+      
+      // Should have logged error message
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('Unknown subcommand')
+        })
+      )
+    })
+  })
 })

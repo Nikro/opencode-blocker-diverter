@@ -5,11 +5,15 @@ import { createSessionHooks } from '../../src/hooks/session'
 
 describe('Session Error Handling & Edge Cases', () => {
   let mockContext: Parameters<Plugin>[0]
-  const testSessionId = 'test-session-123'
+  const testSessionId = 'test-session-errors'
 
   beforeEach(() => {
     // Clean up any existing state
     cleanupState(testSessionId)
+
+    // Initialize fresh state with correct defaults
+    const state = getState(testSessionId)
+    state.divertBlockers = true
 
     // Create mock context
     mockContext = {
