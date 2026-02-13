@@ -6,73 +6,68 @@
  */
 
 import type { Plugin } from "@opencode-ai/plugin";
-import { loadConfig } from "../config";
-import { getState } from "../state";
-
-// Hook handlers will be imported once implemented
-// import { handlePermissionAsked } from "../hooks/permission";
-// import { handleSessionEvent } from "../hooks/session";
-// import { handleStop } from "../hooks/stop";
-// import { handleSystemPromptTransform } from "../hooks/system-prompt";
-// import { handleCompaction } from "../hooks/compaction";
+import type { Permission } from "@opencode-ai/sdk";
+import { loadConfig, type LogClient } from "../config";
+import { handlePermissionAsked, type PermissionOutput } from "../hooks/permission";
+import { createSessionHooks } from "../hooks/session";
+import { createSystemPromptHook } from "../hooks/system-prompt";
+import { logInfo } from "../utils/logging";
 
 /**
  * Plugin factory function
  * Called once when OpenCode loads the plugin
+ * 
+ * Workflow:
+ * 1. Load and validate configuration from opencode.json
+ * 2. Log initialization message
+ * 3. If disabled, return empty hooks object
+ * 4. Wire up hooks with proper context and config
+ * 5. Return hooks object for OpenCode to register
+ * 
+ * @param ctx - Plugin context from OpenCode SDK
+ * @returns Hooks object with registered event handlers
  */
 export const createPlugin: Plugin = async (ctx) => {
-  const { client, project, directory, worktree } = ctx;
+  const { client, worktree } = ctx;
 
-  // Load and validate configuration
-  const config = await loadConfig(directory);
+  // Cast client to LogClient for logging functions
+  const logClient = client as unknown as LogClient;
 
-  // Plugin is not enabled, return minimal hooks
+  // Load and validate configuration (graceful degradation on errors)
+  const config = await loadConfig(worktree, logClient);
+
+  // Log plugin initialization
+  await logInfo(logClient, "Blocker Diverter plugin initialized", {
+    enabled: config.enabled,
+    worktree,
+    blockersFile: config.blockersFile,
+    maxBlockersPerRun: config.maxBlockersPerRun,
+  });
+
+  // Plugin is not enabled, return empty hooks
   if (!config.enabled) {
+    await logInfo(logClient, "Plugin disabled via config, skipping hook registration");
     return {};
   }
 
+  // Create hooks with context and config
+  const sessionHooks = createSessionHooks(ctx);
+  const systemPromptHooks = createSystemPromptHook(ctx, config);
+
+  // Wire up permission hook (needs config and worktree)
+  const permissionHook = async (input: Permission, output: PermissionOutput) => {
+    await handlePermissionAsked(input, output, logClient, config, worktree);
+  };
+
   // Return hook registrations
   return {
-    // PRIMARY HOOKS (Phase 4 implementation)
-    
-    // "permission.asked": async (input, output) => {
-    //   return handlePermissionAsked(input, output, client, config);
-    // },
+    // Permission hook - intercept permission.asked events
+    "permission.asked": permissionHook,
 
-    // event: async ({ event }) => {
-    //   return handleSessionEvent(event, client, config);
-    // },
+    // Session lifecycle hooks - session.created, session.deleted, session.idle, etc.
+    ...sessionHooks,
 
-    // stop: async (input) => {
-    //   return handleStop(input, client, config);
-    // },
-
-    // SECONDARY HOOKS (Phase 4 implementation)
-    
-    // "experimental.chat.system.transform": async (input, output) => {
-    //   return handleSystemPromptTransform(input, output, config);
-    // },
-
-    // "experimental.session.compacting": async (input, output) => {
-    //   return handleCompaction(input, output, client, config);
-    // },
-
-    // COMMANDS (Phase 5 implementation)
-    
-    // "tui.command.execute": async (input, output) => {
-    //   if (input.command === "/blockers") {
-    //     return handleBlockersCommand(input.args || [], input.sessionID, client);
-    //   }
-    // },
-
-    // CONFIG HOOK (register /blockers command)
-    
-    // config: async (input) => {
-    //   input.command ??= {};
-    //   input.command.blockers = {
-    //     description: "Manage blocker diverter (on|off|status|list)",
-    //     template: "$ARGUMENTS",
-    //   };
-    // },
+    // System prompt transformation - inject blocker diversion instructions
+    ...systemPromptHooks,
   };
 };
