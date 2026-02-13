@@ -8,9 +8,11 @@
  * @module hooks/session
  */
 
-import type { Plugin } from '../types'
-import { getState, cleanupState } from '../state'
+import type { Plugin, PluginConfig, SessionState } from '../types'
+import { getState, cleanupState, updateState } from '../state'
 import { logInfo, logWarn, logError, logDebug } from '../utils/logging'
+import { loadConfig } from '../config'
+import { getStopPrompt } from '../utils/templates'
 
 /**
  * Session event structure from OpenCode SDK
@@ -56,6 +58,17 @@ interface CompactionHookOutput {
 interface LoggingClient {
   app: {
     log: (params: unknown) => Promise<void>
+  }
+  [key: string]: unknown
+}
+
+/**
+ * Prompt client interface for type-safe prompt injection
+ * Compatible with OpenCode SDK client.session.prompt structure
+ */
+interface PromptClient {
+  session: {
+    prompt: (params: unknown) => Promise<unknown>
   }
   [key: string]: unknown
 }
@@ -117,7 +130,7 @@ export function createSessionHooks(ctx: Parameters<Plugin>[0]) {
             break
 
           case 'session.idle':
-            await handleSessionIdle(loggingClient, sessionId as string)
+            await handleSessionIdle(loggingClient, sessionId as string, ctx)
             break
 
           case 'session.compacted':
@@ -241,28 +254,153 @@ async function handleSessionDeleted(
  * Handle session.idle event
  * 
  * Triggered when agent is waiting for user input.
- * Currently logs the event. Future iterations may inject
- * "continue" prompts here if autonomous mode is enabled.
+ * Injects continuation prompts to keep autonomous sessions running
+ * when there are logged blockers and work remains.
  */
 async function handleSessionIdle(
   client: LoggingClient,
-  sessionId: string
+  sessionId: string,
+  ctx: Parameters<Plugin>[0]
 ): Promise<void> {
   const state = getState(sessionId)
+  const config = await loadConfig(ctx.project.worktree)
 
   await logDebug(client, 'Session idle', {
     sessionId,
     divertBlockers: state.divertBlockers,
-    blockersLogged: state.blockers.length
+    blockersLogged: state.blockers.length,
+    repromptCount: state.repromptCount
   })
 
-  // Future: Check if we should inject continue prompt
-  // if (state.divertBlockers && state.blockers.length > 0) {
-  //   await client.session.prompt({
-  //     path: { id: sessionId },
-  //     body: { parts: [{ type: "text", text: "Continue with next task" }] }
-  //   })
-  // }
+  // Reset reprompt count if outside the reprompt window
+  const now = Date.now()
+  const timeSinceLastReprompt = now - (state.lastRepromptTime || 0)
+  if (timeSinceLastReprompt > config.repromptWindowMs && state.repromptCount > 0) {
+    updateState(sessionId, s => {
+      s.repromptCount = 0
+    })
+    await logDebug(client, 'Reset reprompt count (outside window)', { 
+      sessionId,
+      timeSinceLastReprompt,
+      windowMs: config.repromptWindowMs
+    })
+  }
+
+  // Check if we should inject continue prompt
+  if (shouldContinue(state, config)) {
+    // Cast client to PromptClient - OpenCode SDK has complex generic types
+    // that don't match our interface, but the runtime behavior is compatible
+    await injectContinuePrompt(sessionId, state, config, client, ctx.client as unknown as PromptClient)
+  }
+}
+
+/**
+ * Determines if agent should be prompted to continue
+ * 
+ * Checks multiple conditions:
+ * - Feature enabled (divertBlockers)
+ * - Blockers logged (work exists)
+ * - Under reprompt limit (safety)
+ * - Cooldown elapsed (prevent spam)
+ * - No loop detected (prevent infinite loops)
+ * 
+ * @param state - Current session state
+ * @param config - Plugin configuration
+ * @returns true if continue prompt should be injected
+ */
+function shouldContinue(state: SessionState, config: PluginConfig): boolean {
+  // Feature disabled
+  if (!state.divertBlockers) return false
+
+  // No blockers logged (no work to continue)
+  if (state.blockers.length === 0) return false
+
+  // Exceeded max reprompts (safety limit)
+  if (state.repromptCount >= config.maxReprompts) return false
+
+  // Cooldown not elapsed (prevent spam)
+  const now = Date.now()
+  const timeSinceLastReprompt = now - (state.lastRepromptTime || 0)
+  if (timeSinceLastReprompt < config.cooldownMs) return false
+
+  // Loop detection (currently disabled - see detectLoop() TODO)
+  if (detectLoop(state)) return false
+
+  return true
+}
+
+/**
+ * Detects if agent is in an infinite loop (repeated responses)
+ * 
+ * TODO: Implement response hash tracking via message.updated or tool.execute.after hooks.
+ * Currently disabled as recentResponseHashes is not populated anywhere in the codebase.
+ * Will implement in future iteration once we add proper response tracking.
+ * 
+ * @param state - Current session state with response hashes
+ * @returns false (always - loop detection disabled for MVP)
+ */
+function detectLoop(state: SessionState): boolean {
+  // Loop detection temporarily disabled
+  // Need to implement response hash tracking first
+  return false
+  
+  // Original implementation (commented out until tracking is implemented):
+  // const { recentResponseHashes } = state
+  // if (recentResponseHashes.length < 3) return false
+  // const last3 = recentResponseHashes.slice(-3)
+  // return last3.every(hash => hash === last3[0])
+}
+
+/**
+ * Injects continuation prompt to keep agent working
+ * 
+ * Uses the stop prompt template which instructs the agent to:
+ * - Check progress on current tasks
+ * - Continue with non-blocking work if available
+ * - Say completion marker when all work is done
+ * 
+ * Updates state to track reprompt count and timestamp.
+ * 
+ * @param sessionId - Current session ID
+ * @param state - Current session state
+ * @param config - Plugin configuration
+ * @param loggingClient - Client for logging
+ * @param client - OpenCode client for prompt injection
+ */
+async function injectContinuePrompt(
+  sessionId: string,
+  state: SessionState,
+  config: PluginConfig,
+  loggingClient: LoggingClient,
+  client: PromptClient
+): Promise<void> {
+  try {
+    const continuePrompt = getStopPrompt(sessionId, config)
+
+    await client.session.prompt(continuePrompt)
+
+    // Update state
+    updateState(sessionId, s => {
+      s.repromptCount++
+      s.lastRepromptTime = Date.now()
+    })
+
+    // Get updated state after mutation for accurate logging
+    const updatedState = getState(sessionId)
+
+    await logInfo(loggingClient, 'Injected continuation prompt', {
+      sessionId,
+      repromptCount: updatedState.repromptCount,
+      blockerCount: updatedState.blockers.length
+    })
+  } catch (error) {
+    await logError(
+      loggingClient,
+      'Failed to inject continuation prompt',
+      error as Error,
+      { sessionId }
+    )
+  }
 }
 
 /**
