@@ -29,14 +29,23 @@ logs/
 # Plugin outputs
 blockers.md
 
-# OpenCode local config (testing)
+# OpenCode local config (development only)
 opencode.json
-.opencode/*
-!.opencode/plugin/
 
-# OpenCode commands - not tracked in git (user customizations)
-.opencode/command/
-.opencode/commands/
+# OpenCode local artifacts (generated at runtime)
+.opencode/node_modules/
+.opencode/package.json
+.opencode/bun.lock
+.opencode/.gitignore
+.opencode/blocker-diverter.json
+
+# OpenCode development commands (not part of plugin distribution)
+.opencode/commands/speckit.*.md
+
+# Old plugin structure (superseded by root src/)
+.opencode/plugin/
+
+# NOTE: .opencode/commands/blockers.*.md ARE committed (essential AI templates)
 
 # OS
 .DS_Store
