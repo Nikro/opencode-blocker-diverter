@@ -50,7 +50,7 @@ npm install -g opencode-blocker-diverter
 **Or local development:**
 ```bash
 # Clone and link for development
-git clone https://github.com/yourusername/opencode-blocker-diverter.git
+git clone https://github.com/Nikro/opencode-blocker-diverter.git
 cd opencode-blocker-diverter
 bun install
 bun run build
@@ -60,6 +60,40 @@ npm link /path/to/opencode-blocker-diverter
 ```
 
 ### Basic Usage
+
+#### AI Agent Usage (The Blocker Tool)
+
+When the Blocker Diverter plugin is active, AI agents have access to a `blocker` tool that they can actively call to log blocking questions:
+
+```typescript
+// AI agent encounters a hard blocker
+await use_tool("blocker", {
+  question: "Which authentication provider should I use?",
+  category: "architecture",
+  context: "Building user login system. Files: src/auth/provider.ts, src/middleware/auth.ts"
+})
+// Returns: "Great, blocker registered, move on with the next non-blocking issues!"
+```
+
+**Categories:**
+- `architecture` — Framework/library selection, design patterns
+- `security` — Authentication, authorization, data protection
+- `destructive` — Delete operations, data migrations
+- `deployment` — Hosting, CI/CD, environment configuration
+- `question` — General questions requiring human input
+- `other` — Uncategorized blockers
+
+**When agents should use it:**
+- Hard decisions requiring human judgment (framework choice, security strategy)
+- Destructive operations (deleting files, dropping tables)
+- Deployment/configuration choices (hosting provider, CI/CD setup)
+
+**When agents should NOT use it:**
+- Naming conventions (make reasonable default: `getUserData`)
+- Code formatting (follow project style: Prettier/ESLint)
+- Minor refactoring choices (use existing patterns)
+
+#### User Commands
 
 ```bash
 # In OpenCode session
@@ -237,7 +271,7 @@ Resolve blocker #id by selecting option (future feature).
 
 ### Setup
 ```bash
-git clone https://github.com/yourusername/opencode-blocker-diverter.git
+git clone https://github.com/Nikro/opencode-blocker-diverter.git
 cd opencode-blocker-diverter
 bun install
 ```

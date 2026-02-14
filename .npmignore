@@ -16,6 +16,7 @@ docs/
 specs/
 *.md
 !README.md
+!LICENSE
 
 # Build artifacts
 *.tsbuildinfo
