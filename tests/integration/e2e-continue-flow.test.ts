@@ -17,7 +17,6 @@ import {
   createMockContext,
   setupSpies,
   TEST_SESSION_ID,
-  createPermission,
   type MockPluginContext,
   type TestSpies,
 } from './fixtures'
@@ -42,30 +41,34 @@ describe('E2E: Continue Prompt Flow', () => {
   it('should inject continue prompt on idle when blockers exist', async () => {
     // Session created
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
-    // Add blocker
-    const permissionInput = createPermission({
-      id: 'perm-continue',
-      messageID: 'msg-continue',
+    // Add blocker via tool.execute.before with question tool
+    const toolInput = {
+      tool: 'question',
+      sessionID: TEST_SESSION_ID,
       callID: 'call-continue',
-      title: 'Test',
-      metadata: { tool: 'bash', args: { command: 'test' } },
-    })
+    }
+    const toolOutput = { args: {} }
 
-    await pluginHooks['permission.asked'](permissionInput, { status: 'ask' })
+    // Tool interception throws - expected behavior
+    try {
+      await pluginHooks['tool.execute.before']!(toolInput, toolOutput)
+    } catch (error) {
+      // Expected - tool is blocked in autonomous mode
+    }
 
     // Clear prompt mock to isolate idle behavior
-    mockContext.client.session.prompt.mockClear()
+    mockContext.client.session.promptAsync.mockClear()
 
     // Trigger idle
     await pluginHooks.event({
-      event: { type: 'session.idle', session_id: TEST_SESSION_ID },
+      event: { type: 'session.idle', properties: { sessionID: TEST_SESSION_ID } },
     })
 
     // Verify continue prompt injected
-    expect(mockContext.client.session.prompt).toHaveBeenCalled()
+    expect(mockContext.client.session.promptAsync).toHaveBeenCalled()
 
     // Verify reprompt count incremented
     const state = getState(TEST_SESSION_ID)
@@ -75,16 +78,16 @@ describe('E2E: Continue Prompt Flow', () => {
 
   it('should respect maxReprompts safety limit', async () => {
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
-    // Add blocker
+    // Add blocker directly to state
     const state = getState(TEST_SESSION_ID)
     state.blockers.push({
       id: 'test-blocker',
       timestamp: new Date().toISOString(),
       sessionId: TEST_SESSION_ID,
-      category: 'permission',
+      category: 'question',
       question: 'Test',
       context: 'test',
       blocksProgress: true,
@@ -95,20 +98,20 @@ describe('E2E: Continue Prompt Flow', () => {
     state.lastRepromptTime = Date.now()
 
     // Clear prompt mock
-    mockContext.client.session.prompt.mockClear()
+    mockContext.client.session.promptAsync.mockClear()
 
     // Trigger idle
     await pluginHooks.event({
-      event: { type: 'session.idle', session_id: TEST_SESSION_ID },
+      event: { type: 'session.idle', properties: { sessionID: TEST_SESSION_ID } },
     })
 
     // Should NOT inject prompt (at max limit)
-    expect(mockContext.client.session.prompt).not.toHaveBeenCalled()
+    expect(mockContext.client.session.promptAsync).not.toHaveBeenCalled()
   })
 
   it('should reset reprompt count after window expires', async () => {
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
     const state = getState(TEST_SESSION_ID)
@@ -116,7 +119,7 @@ describe('E2E: Continue Prompt Flow', () => {
       id: 'test-blocker',
       timestamp: new Date().toISOString(),
       sessionId: TEST_SESSION_ID,
-      category: 'permission',
+      category: 'question',
       question: 'Test',
       context: 'test',
       blocksProgress: true,
@@ -124,18 +127,18 @@ describe('E2E: Continue Prompt Flow', () => {
 
     // Set reprompt count and old timestamp
     state.repromptCount = 3
-    state.lastRepromptTime = Date.now() - 200000 // 200 seconds ago (outside 120s window)
+    state.lastRepromptTime = Date.now() - 400000 // 400 seconds ago (outside 300s / 5-minute window)
 
     // Clear prompt mock
-    mockContext.client.session.prompt.mockClear()
+    mockContext.client.session.promptAsync.mockClear()
 
     // Trigger idle
     await pluginHooks.event({
-      event: { type: 'session.idle', session_id: TEST_SESSION_ID },
+      event: { type: 'session.idle', properties: { sessionID: TEST_SESSION_ID } },
     })
 
     // Should reset count and inject prompt
-    expect(mockContext.client.session.prompt).toHaveBeenCalled()
+    expect(mockContext.client.session.promptAsync).toHaveBeenCalled()
     
     const stateAfter = getState(TEST_SESSION_ID)
     expect(stateAfter.repromptCount).toBe(1) // Reset and incremented
@@ -143,7 +146,7 @@ describe('E2E: Continue Prompt Flow', () => {
 
   it('should not inject continue prompt when divertBlockers is disabled', async () => {
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
     const state = getState(TEST_SESSION_ID)
@@ -151,7 +154,7 @@ describe('E2E: Continue Prompt Flow', () => {
       id: 'test-blocker',
       timestamp: new Date().toISOString(),
       sessionId: TEST_SESSION_ID,
-      category: 'permission',
+      category: 'question',
       question: 'Test',
       context: 'test',
       blocksProgress: true,
@@ -160,13 +163,13 @@ describe('E2E: Continue Prompt Flow', () => {
     // Disable diversion
     state.divertBlockers = false
 
-    mockContext.client.session.prompt.mockClear()
+    mockContext.client.session.promptAsync.mockClear()
 
     await pluginHooks.event({
-      event: { type: 'session.idle', session_id: TEST_SESSION_ID },
+      event: { type: 'session.idle', properties: { sessionID: TEST_SESSION_ID } },
     })
 
     // Should NOT inject prompt
-    expect(mockContext.client.session.prompt).not.toHaveBeenCalled()
+    expect(mockContext.client.session.promptAsync).not.toHaveBeenCalled()
   })
 })

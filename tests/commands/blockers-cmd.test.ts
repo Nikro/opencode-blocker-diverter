@@ -1,16 +1,22 @@
 /**
- * Tests for /blockers command handler
+ * Tests for dot-delimited /blockers.* command handlers
  * 
- * Tests all subcommands (on, off, status, list) with mocked dependencies,
+ * Tests all commands (on, off, status, list) with mocked dependencies,
  * verifying state changes and logging output.
  */
 
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
-import { handleBlockersCommand } from '../../src/commands/blockers-cmd'
+import { 
+  handleOnCommand,
+  handleOffCommand,
+  handleStatusCommand,
+  handleListCommand 
+} from '../../src/commands/blockers-cmd'
 import { getState, cleanupState } from '../../src/state'
-import type { LogClient, PluginConfig } from '../../src/types'
+import type { LogClient } from '../../src/config'
+import type { PluginConfig } from '../../src/types'
 
-describe('handleBlockersCommand', () => {
+describe('Blocker Command Handlers', () => {
   let mockClient: LogClient
   let logMessages: Array<{ level: string; message: string; extra?: Record<string, unknown> }>
   const testSessionId = 'test-session-blockers-cmd'
@@ -21,8 +27,9 @@ describe('handleBlockersCommand', () => {
     maxBlockersPerRun: 50,
     cooldownMs: 30000,
     maxReprompts: 5,
-    repromptWindowMs: 120000,
+    repromptWindowMs: 300000,
     completionMarker: 'BLOCKER_DIVERTER_DONE!',
+    promptTimeoutMs: 30000,
   }
 
   beforeEach(() => {
@@ -50,65 +57,65 @@ describe('handleBlockersCommand', () => {
     cleanupState(testSessionId)
   })
 
-  describe('subcommand: on', () => {
+  describe('handleOnCommand', () => {
     it('should enable blocker diversion for session', async () => {
       const state = getState(testSessionId)
       state.divertBlockers = false // Start disabled
 
-      await handleBlockersCommand('on', {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
+      const result = await handleOnCommand(state, mockClient)
 
       expect(state.divertBlockers).toBe(true)
       expect(logMessages).toHaveLength(1)
       expect(logMessages[0].level).toBe('info')
       expect(logMessages[0].message).toContain('enabled')
+      
+      // Check CommandResult structure
+      expect(result.handled).toBe(true)
+      expect(result.minimalResponse).toBeDefined()
+      expect(result.toast).toBeDefined()
+      expect(result.toast?.variant).toBe('success')
     })
 
     it('should log confirmation message', async () => {
-      await handleBlockersCommand('on', {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
+      const state = getState(testSessionId)
+      const result = await handleOnCommand(state, mockClient)
 
       const logMsg = logMessages[0]
       expect(logMsg.message).toMatch(/blocker diverter enabled/i)
+      expect(result.toast?.message).toContain('Enabled')
     })
   })
 
-  describe('subcommand: off', () => {
+  describe('handleOffCommand', () => {
     it('should disable blocker diversion for session', async () => {
       const state = getState(testSessionId)
       state.divertBlockers = true // Start enabled
 
-      await handleBlockersCommand('off', {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
+      const result = await handleOffCommand(state, mockClient)
 
       expect(state.divertBlockers).toBe(false)
       expect(logMessages).toHaveLength(1)
       expect(logMessages[0].level).toBe('info')
       expect(logMessages[0].message).toContain('disabled')
+      
+      // Check CommandResult structure
+      expect(result.handled).toBe(true)
+      expect(result.minimalResponse).toBeDefined()
+      expect(result.toast).toBeDefined()
+      expect(result.toast?.variant).toBe('success')
     })
 
     it('should log confirmation message', async () => {
-      await handleBlockersCommand('off', {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
+      const state = getState(testSessionId)
+      const result = await handleOffCommand(state, mockClient)
 
       const logMsg = logMessages[0]
       expect(logMsg.message).toMatch(/blocker diverter disabled/i)
+      expect(result.toast?.message).toContain('Disabled')
     })
   })
 
-  describe('subcommand: status', () => {
+  describe('handleStatusCommand', () => {
     it('should show enabled status with blocker count', async () => {
       const state = getState(testSessionId)
       state.divertBlockers = true
@@ -133,11 +140,7 @@ describe('handleBlockersCommand', () => {
         },
       ]
 
-      await handleBlockersCommand('status', {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
+      const result = await handleStatusCommand(state, mockClient, testConfig)
 
       expect(logMessages).toHaveLength(1)
       const logMsg = logMessages[0]
@@ -145,20 +148,26 @@ describe('handleBlockersCommand', () => {
       expect(logMsg.message).toContain('enabled')
       expect(logMsg.message).toContain('2')
       expect(logMsg.message).toContain('50')
+      
+      // Check CommandResult structure
+      expect(result.handled).toBe(true)
+      expect(result.minimalResponse).toContain('enabled')
+      expect(result.minimalResponse).toContain('2/50')
+      expect(result.toast).toBeDefined()
+      expect(result.toast?.variant).toBe('info')
+      expect(result.toast?.message).toContain('enabled')
+      expect(result.toast?.message).toContain('2/50')
     })
 
     it('should show disabled status', async () => {
       const state = getState(testSessionId)
       state.divertBlockers = false
 
-      await handleBlockersCommand('status', {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
+      const result = await handleStatusCommand(state, mockClient, testConfig)
 
       const logMsg = logMessages[0]
       expect(logMsg.message).toContain('disabled')
+      expect(result.toast?.message).toContain('disabled')
     })
 
     it('should include blocker count and max', async () => {
@@ -173,18 +182,15 @@ describe('handleBlockersCommand', () => {
         blocksProgress: false,
       }))
 
-      await handleBlockersCommand('status', {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
+      const result = await handleStatusCommand(state, mockClient, testConfig)
 
       const logMsg = logMessages[0]
       expect(logMsg.message).toMatch(/15.*50/)
+      expect(result.toast?.message).toContain('15/50')
     })
   })
 
-  describe('subcommand: list', () => {
+  describe('handleListCommand', () => {
     it('should list all blockers with category and truncated question', async () => {
       const state = getState(testSessionId)
       state.blockers = [
@@ -208,11 +214,7 @@ describe('handleBlockersCommand', () => {
         },
       ]
 
-      await handleBlockersCommand('list', {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
+      const result = await handleListCommand(state, mockClient)
 
       expect(logMessages).toHaveLength(1)
       const logMsg = logMessages[0]
@@ -221,6 +223,11 @@ describe('handleBlockersCommand', () => {
       expect(logMsg.message).toContain('architecture')
       expect(logMsg.message).toContain('Allow bash command?')
       expect(logMsg.message).toContain('REST or GraphQL')
+      
+      // List should NOT be handled - let AI process it
+      expect(result.handled).toBe(false)
+      expect(result.minimalResponse).toBeUndefined()
+      expect(result.toast).toBeUndefined()
     })
 
     it('should truncate long questions to 80 characters', async () => {
@@ -238,30 +245,24 @@ describe('handleBlockersCommand', () => {
         },
       ]
 
-      await handleBlockersCommand('list', {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
+      const result = await handleListCommand(state, mockClient)
 
       const logMsg = logMessages[0]
       expect(logMsg.message).toContain('...')
       expect(logMsg.message).not.toContain('A'.repeat(85))
+      expect(result.handled).toBe(false)
     })
 
     it('should show message when no blockers recorded', async () => {
       const state = getState(testSessionId)
       state.blockers = []
 
-      await handleBlockersCommand('list', {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
+      const result = await handleListCommand(state, mockClient)
 
       expect(logMessages).toHaveLength(1)
       const logMsg = logMessages[0]
       expect(logMsg.message).toMatch(/no blockers/i)
+      expect(result.handled).toBe(false)
     })
 
     it('should number blockers sequentially', async () => {
@@ -276,71 +277,32 @@ describe('handleBlockersCommand', () => {
         blocksProgress: false,
       }))
 
-      await handleBlockersCommand('list', {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
+      const result = await handleListCommand(state, mockClient)
 
       const logMsg = logMessages[0]
       expect(logMsg.message).toContain('1.')
       expect(logMsg.message).toContain('2.')
       expect(logMsg.message).toContain('3.')
-    })
-  })
-
-  describe('subcommand: undefined (help)', () => {
-    it('should show help message when no subcommand provided', async () => {
-      await handleBlockersCommand(undefined, {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
-
-      expect(logMessages).toHaveLength(1)
-      const logMsg = logMessages[0]
-      expect(logMsg.level).toBe('info')
-      expect(logMsg.message).toContain('/blockers on')
-      expect(logMsg.message).toContain('/blockers off')
-      expect(logMsg.message).toContain('/blockers status')
-      expect(logMsg.message).toContain('/blockers list')
-    })
-  })
-
-  describe('subcommand: invalid', () => {
-    it('should show error and suggest valid subcommands', async () => {
-      await handleBlockersCommand('invalid', {
-        client: mockClient,
-        sessionId: testSessionId,
-        config: testConfig,
-      })
-
-      expect(logMessages).toHaveLength(1)
-      const logMsg = logMessages[0]
-      expect(logMsg.level).toBe('info')
-      expect(logMsg.message).toContain('invalid')
-      expect(logMsg.message).toMatch(/on.*off.*status.*list/i)
+      expect(result.handled).toBe(false)
     })
   })
 
   describe('error handling', () => {
-    it('should handle missing client gracefully', async () => {
+    it('should handle missing client gracefully in handleOnCommand', async () => {
       const state = getState(testSessionId)
       
       // Should not throw
-      await expect(
-        handleBlockersCommand('on', {
-          client: undefined,
-          sessionId: testSessionId,
-          config: testConfig,
-        })
-      ).resolves.toBeUndefined()
+      const result = await handleOnCommand(state, undefined)
 
       // State should still change
       expect(state.divertBlockers).toBe(true)
+      
+      // Should still return valid CommandResult
+      expect(result.handled).toBe(true)
+      expect(result.toast).toBeDefined()
     })
 
-    it('should handle logging failures gracefully', async () => {
+    it('should handle logging failures gracefully in handleStatusCommand', async () => {
       const faultyClient: LogClient = {
         app: {
           log: mock(async () => {
@@ -349,14 +311,15 @@ describe('handleBlockersCommand', () => {
         },
       }
 
+      const state = getState(testSessionId)
+      
       // Should not throw
-      await expect(
-        handleBlockersCommand('status', {
-          client: faultyClient,
-          sessionId: testSessionId,
-          config: testConfig,
-        })
-      ).resolves.toBeUndefined()
+      const result = await handleStatusCommand(state, faultyClient, testConfig)
+      
+      // Should still return valid CommandResult
+      expect(result.handled).toBe(true)
+      expect(result.toast).toBeDefined()
     })
   })
 })
+

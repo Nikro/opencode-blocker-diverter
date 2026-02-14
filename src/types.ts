@@ -8,9 +8,43 @@
  */
 
 import type { Plugin } from '@opencode-ai/plugin'
+import { z } from 'zod'
 
 // Re-export Plugin type from OpenCode SDK
 export type { Plugin }
+
+/**
+ * Zod schema for blocker tool arguments
+ * Validates arguments passed by AI agents when calling the blocker tool
+ * 
+ * Implements FR-003: Full blocker schema with soft blocker support
+ */
+export const BlockerToolArgsSchema = z.object({
+  question: z.string().min(1, "Question cannot be empty"),
+  category: z.enum(['architecture', 'security', 'destructive', 'permission', 'question', 'other']),
+  context: z.string().optional().default(""),
+  blocksProgress: z.boolean().default(true),
+  options: z.array(z.string()).optional(),
+  chosenOption: z.string().optional(),
+  chosenReasoning: z.string().optional()
+}).refine(
+  (data) => {
+    // If it's a soft blocker (blocksProgress=false), require options
+    if (data.blocksProgress === false && (!data.options || data.options.length === 0)) {
+      return false
+    }
+    // If chosenOption is provided, it must be in options array
+    if (data.chosenOption && data.options && !data.options.includes(data.chosenOption)) {
+      return false
+    }
+    return true
+  },
+  {
+    message: "Soft blockers (blocksProgress=false) must include options array. If chosenOption is provided, it must be in the options array."
+  }
+)
+
+export type BlockerToolArgs = z.infer<typeof BlockerToolArgsSchema>
 
 /**
  * Blocker category classification
@@ -23,6 +57,7 @@ export type BlockerCategory =
   | 'architecture'  // High-level design decisions
   | 'security'      // Security-sensitive operations
   | 'destructive'   // Potentially destructive operations (delete, truncate)
+  | 'deployment'    // Deployment configuration
   | 'question'      // General conversational questions
   | 'other'         // Uncategorized blockers
 
@@ -151,6 +186,26 @@ export interface SessionState {
    * Used for reprompt window calculations
    */
   lastRepromptTime: number
+
+  /** 
+   * Recovery guard flag - prevents re-prompting immediately after errors
+   * Set to true when session.error occurs, cleared on next session.idle
+   * Allows the agent one idle cycle to stabilize before auto-continue resumes
+   */
+  isRecovering: boolean
+
+  /**
+   * Pending write queue for failed blocker writes (FR-024)
+   * Blockers that failed to write to file are queued here for retry
+   */
+  pendingWrites: Blocker[]
+
+  /**
+   * Last assistant message content (for completion marker detection)
+   * Updated by chat.message hook when agent sends messages
+   * Used by session.idle handler to check if agent signaled completion
+   */
+  lastMessageContent: string
 }
 
 /**
@@ -204,4 +259,10 @@ export interface PluginConfig {
    * Used to demarcate session boundaries in the log
    */
   completionMarker: string
+
+  /** 
+   * Timeout for prompt injection API calls in milliseconds
+   * Prevents hanging indefinitely when injecting continuation prompts
+   */
+  promptTimeoutMs: number
 }

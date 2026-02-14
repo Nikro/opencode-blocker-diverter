@@ -1,14 +1,19 @@
 /**
  * Configuration loading and validation for Blocker Diverter plugin
  * 
- * Loads configuration from opencode.json, validates with Zod schema,
- * and provides graceful fallback to defaults on errors.
+ * Loads configuration from standard plugin config locations:
+ * - User: ~/.config/opencode/blocker-diverter.json (global defaults)
+ * - Project: .opencode/blocker-diverter.json (project overrides)
+ * 
+ * Project config takes precedence over user config.
+ * Falls back to defaults if no config files exist.
  * 
  * @module config
  */
 
 import { z } from 'zod'
-import { resolve, isAbsolute } from 'path'
+import { resolve, isAbsolute, join } from 'path'
+import { homedir } from 'os'
 
 /**
  * Zod schema for plugin configuration
@@ -20,8 +25,9 @@ import { resolve, isAbsolute } from 'path'
  * - maxBlockersPerRun: Session blocker limit, 1-100 (default: 50)
  * - cooldownMs: Deduplication window, min 1000ms (default: 30000)
  * - maxReprompts: Stop prevention limit, min 1 (default: 5)
- * - repromptWindowMs: Reprompt time window, min 60000ms (default: 120000)
+ * - repromptWindowMs: Reprompt time window, min 60000ms (default: 300000 / 5 minutes)
  * - completionMarker: Session completion marker (default: 'BLOCKER_DIVERTER_DONE!')
+ * - promptTimeoutMs: Prompt API timeout, min 1000ms (default: 30000)
  */
 export const ConfigSchema = z.object({
   enabled: z.boolean().default(true),
@@ -30,8 +36,9 @@ export const ConfigSchema = z.object({
   maxBlockersPerRun: z.number().int().min(1).max(100).default(50),
   cooldownMs: z.number().int().min(1000).default(30000),
   maxReprompts: z.number().int().min(1).default(5),
-  repromptWindowMs: z.number().int().min(60000).default(120000),
+  repromptWindowMs: z.number().int().min(60000).default(300000),
   completionMarker: z.string().default('BLOCKER_DIVERTER_DONE!'),
+  promptTimeoutMs: z.number().int().min(1000).default(30000),
 })
 
 /**
@@ -57,16 +64,19 @@ export interface LogClient {
 }
 
 /**
- * Load and validate plugin configuration from opencode.json
+ * Load and validate plugin configuration from standard locations
  * 
- * Reads the `blockerDiverter` section from opencode.json in the project root.
- * Falls back to defaults on any error (missing file, invalid JSON, validation failure).
+ * Config loading order (later overrides earlier):
+ * 1. User config: ~/.config/opencode/blocker-diverter.json
+ * 2. Project config: .opencode/blocker-diverter.json
+ * 
+ * Falls back to defaults if no config files exist.
  * Logs warnings/info via client.app.log when available.
  * 
  * Error handling strategy:
- * - File not found → use defaults, log info
- * - Invalid JSON → use defaults, log warning
- * - Zod validation fails → use defaults, log warning with errors
+ * - File not found → try next location, fallback to defaults
+ * - Invalid JSON → log warning, use defaults
+ * - Zod validation fails → log warning with errors, use defaults
  * - No client provided → skip logging (graceful degradation)
  * 
  * Path resolution:
@@ -87,75 +97,94 @@ export async function loadConfig(
   projectDir: string,
   client?: LogClient
 ): Promise<Config> {
-  const configPath = resolve(projectDir, 'opencode.json')
+  // Standard plugin config locations
+  const userConfigPath = join(homedir(), '.config', 'opencode', 'blocker-diverter.json')
+  const projectConfigPath = join(projectDir, '.opencode', 'blocker-diverter.json')
 
+  // Try project config first (highest priority)
+  const projectConfig = await loadConfigFromPath(projectConfigPath, client)
+  if (projectConfig) {
+    await logInfo(client, `Loaded config from ${projectConfigPath}`)
+    return resolveConfigPaths(projectConfig, projectDir)
+  }
+
+  // Fall back to user config
+  const userConfig = await loadConfigFromPath(userConfigPath, client)
+  if (userConfig) {
+    await logInfo(client, `Loaded config from ${userConfigPath}`)
+    return resolveConfigPaths(userConfig, projectDir)
+  }
+
+  // No config found, use defaults
+  await logInfo(
+    client,
+    'No config found, using defaults',
+    { 
+      checkedPaths: [projectConfigPath, userConfigPath] 
+    }
+  )
+  return getDefaultsWithResolvedPaths(projectDir)
+}
+
+/**
+ * Load config from a specific file path
+ * 
+ * @param configPath - Absolute path to config file
+ * @returns Validated config or null if file doesn't exist or is invalid
+ */
+async function loadConfigFromPath(
+  configPath: string,
+  client?: LogClient
+): Promise<Config | null> {
   try {
-    // Check if config file exists
+    // Check if file exists (using Bun.file for async)
     const file = Bun.file(configPath)
     const exists = await file.exists()
-
+    
     if (!exists) {
-      await logInfo(
-        client,
-        `opencode.json not found at ${configPath}, using defaults`
-      )
-      return getDefaultsWithResolvedPaths(projectDir)
+      return null
     }
 
     // Read and parse JSON
     const fileContent = await file.text()
-    let parsedJson: unknown
-
-    try {
-      parsedJson = JSON.parse(fileContent)
-    } catch (parseError) {
-      await logWarning(
-        client,
-        `Invalid JSON in opencode.json: ${(parseError as Error).message}`,
-        { path: configPath }
-      )
-      return getDefaultsWithResolvedPaths(projectDir)
-    }
-
-    // Extract blockerDiverter section (safe extraction from unknown type)
-    const blockerDiverterConfig =
-      (parsedJson as Record<string, unknown>)?.blockerDiverter ?? {}
+    const parsedJson: unknown = JSON.parse(fileContent)
 
     // Validate with Zod schema
-    const validationResult = ConfigSchema.safeParse(blockerDiverterConfig)
+    const validationResult = ConfigSchema.safeParse(parsedJson)
 
     if (!validationResult.success) {
-      // Extract validation errors safely (Zod uses .issues, not .errors)
-      const validationErrors = validationResult.error.issues.map(err => ({
-        path: err.path.join('.'),
-        message: err.message,
-        code: err.code,
-      }))
-
+      // Validation failed - log and return null
       await logWarning(
         client,
-        'Blocker Diverter config validation failed, using defaults',
-        { errors: validationErrors }
+        `Config validation failed for ${configPath}`,
+        { issues: validationResult.error.issues.map(i => i.message) }
       )
-      return getDefaultsWithResolvedPaths(projectDir)
+      return null
     }
 
-    // Resolve blockersFile path
-    const validatedConfig = validationResult.data
-    validatedConfig.blockersFile = resolveBlockersFilePath(
-      validatedConfig.blockersFile,
-      projectDir
-    )
-
-    return validatedConfig
+    return validationResult.data
   } catch (error) {
-    // Catch-all for unexpected errors (filesystem issues, etc.)
+    // Parse error or filesystem error
     await logWarning(
       client,
-      `Failed to load config: ${(error as Error).message}`,
-      { error: (error as Error).stack }
+      `Failed to load config from ${configPath}`,
+      { error: error instanceof Error ? error.message : String(error) }
     )
-    return getDefaultsWithResolvedPaths(projectDir)
+    return null
+  }
+}
+
+/**
+ * Resolve relative paths in config
+ * 
+ * @param config - Validated config with potentially relative paths
+ * @param projectDir - Project root directory
+ * @returns Config with resolved absolute paths
+ */
+function resolveConfigPaths(config: Config, projectDir: string): Config {
+  return {
+    ...config,
+    blockersFile: resolveBlockersFilePath(config.blockersFile, projectDir),
   }
 }
 

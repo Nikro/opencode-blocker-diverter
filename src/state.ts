@@ -33,7 +33,10 @@ export function getState(sessionId: string): SessionState {
       lastBlockerTime: Date.now(),
       repromptCount: 0,
       recentResponseHashes: [],
-      lastRepromptTime: 0
+      lastRepromptTime: 0,
+      isRecovering: false,
+      pendingWrites: [],
+      lastMessageContent: ''
     }
     sessions.set(sessionId, state)
   }
@@ -76,8 +79,18 @@ export function updateState(
  * 
  * @example
  * // In session.deleted event handler
- * cleanupState(event.session_id)
+ * cleanupState(event.properties.info.id)
  */
 export function cleanupState(sessionId: string): void {
   sessions.delete(sessionId)
+}
+
+/**
+ * Check if session state exists in the map (for testing)
+ * 
+ * @param sessionId - OpenCode session ID
+ * @returns true if session exists in map, false otherwise
+ */
+export function hasState(sessionId: string): boolean {
+  return sessions.has(sessionId)
 }

@@ -29,6 +29,15 @@ logs/
 # Plugin outputs
 blockers.md
 
+# OpenCode local config (testing)
+opencode.json
+.opencode/*
+!.opencode/plugin/
+
+# OpenCode commands - not tracked in git (user customizations)
+.opencode/command/
+.opencode/commands/
+
 # OS
 .DS_Store
 Thumbs.db

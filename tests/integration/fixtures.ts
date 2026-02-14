@@ -8,7 +8,6 @@
  */
 
 import { mock, spyOn } from 'bun:test'
-import type { Permission } from '@opencode-ai/sdk'
 import * as blockersFile from '../../src/utils/blockers-file'
 import * as configModule from '../../src/config'
 import { resolve } from 'node:path'
@@ -22,7 +21,7 @@ interface MockAppLog {
 }
 
 interface MockSessionPrompt {
-  prompt: ReturnType<typeof mock>
+  promptAsync: ReturnType<typeof mock>
 }
 
 interface MockClient {
@@ -75,7 +74,7 @@ export function createMockContext(): MockPluginContext {
         log: mock(() => Promise.resolve()),
       },
       session: {
-        prompt: mock(() => Promise.resolve()),
+        promptAsync: mock(() => Promise.resolve()),
       },
     },
     project: {
@@ -109,42 +108,10 @@ export function setupSpies(): TestSpies {
     maxBlockersPerRun: 50,
     cooldownMs: 30000,
     maxReprompts: 5,
-    repromptWindowMs: 120000,
+    repromptWindowMs: 300000,
     completionMarker: 'BLOCKER_DIVERTER_DONE!',
+    promptTimeoutMs: 30000,
   })
 
   return { appendBlockerSpy, loadConfigSpy }
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * Creates a test Permission object with default values
- */
-export function createPermission(overrides: Partial<Permission> = {}): Permission {
-  return {
-    id: 'perm-test',
-    type: 'bash',
-    sessionID: TEST_SESSION_ID,
-    messageID: 'msg-test',
-    callID: 'call-test',
-    title: 'Test permission',
-    metadata: {
-      tool: 'bash',
-      args: { command: 'test' },
-    },
-    time: {
-      created: Date.now(),
-    },
-    ...overrides,
-  }
-}
-
-/**
- * Creates a permission output object for testing
- */
-export function createPermissionOutput() {
-  return { status: 'ask' as 'allow' | 'deny' | 'ask' }
 }

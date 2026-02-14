@@ -13,16 +13,20 @@ import { getState, cleanupState, updateState } from '../state'
 import { logInfo, logWarn, logError, logDebug } from '../utils/logging'
 import { loadConfig } from '../config'
 import { getStopPrompt } from '../utils/templates'
+import { withTimeout, TimeoutError } from '../utils/with-timeout'
 
 /**
  * Session event structure from OpenCode SDK
- * Contains event type, optional session_id, and additional properties
+ * Events have a type and properties object with event-specific data
  */
 interface SessionEvent {
   type: string
-  session_id?: string
-  error?: unknown
-  [key: string]: unknown
+  properties: {
+    info?: { id: string; [key: string]: unknown }
+    sessionID?: string
+    error?: unknown
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -35,10 +39,10 @@ interface EventHookInput {
 
 /**
  * Compaction hook input structure
- * Contains session_id and additional context data
+ * Contains sessionID and additional context data
  */
 interface CompactionHookInput {
-  session_id?: string
+  sessionID?: string
   [key: string]: unknown
 }
 
@@ -64,11 +68,11 @@ interface LoggingClient {
 
 /**
  * Prompt client interface for type-safe prompt injection
- * Compatible with OpenCode SDK client.session.prompt structure
+ * Compatible with OpenCode SDK client.session.promptAsync structure
  */
 interface PromptClient {
   session: {
-    prompt: (params: unknown) => Promise<unknown>
+    promptAsync: (params: unknown) => Promise<unknown>
   }
   [key: string]: unknown
 }
@@ -109,11 +113,16 @@ export function createSessionHooks(ctx: Parameters<Plugin>[0]) {
           return
         }
 
-        const { type, session_id: sessionId } = event
+        const { type, properties } = event
 
-        // Validate session_id for session events (protocol-based guard)
+        // Extract session ID from properties (varies by event type)
+        // session.created/deleted: properties.info.id
+        // session.idle/compacted/error: properties.sessionID
+        const sessionId = properties?.info?.id ?? properties?.sessionID
+
+        // Validate session ID for session events (protocol-based guard)
         if (!sessionId && typeof type === 'string' && type.startsWith('session.')) {
-          await logWarn(loggingClient, 'Session event missing session_id', { 
+          await logWarn(loggingClient, 'Session event missing sessionID', { 
             type 
           })
           return
@@ -138,7 +147,7 @@ export function createSessionHooks(ctx: Parameters<Plugin>[0]) {
             break
 
           case 'session.error':
-            await handleSessionError(loggingClient, sessionId as string, event.error)
+            await handleSessionError(loggingClient, sessionId as string, properties?.error)
             break
 
           default:
@@ -168,10 +177,10 @@ export function createSessionHooks(ctx: Parameters<Plugin>[0]) {
       output: CompactionHookOutput
     ): Promise<void> => {
       try {
-        const sessionId = input?.session_id
+        const sessionId = input?.sessionID
 
         if (!sessionId) {
-          await logWarn(loggingClient, 'Missing session_id in compacting hook', { input })
+          await logWarn(loggingClient, 'Missing sessionID in compacting hook', { input })
           return
         }
 
@@ -201,6 +210,66 @@ Latest: ${JSON.stringify(recentBlockers, null, 2)}
         await logError(
           loggingClient,
           'Error in session compacting hook',
+          error as Error,
+          { input }
+        )
+      }
+    },
+
+    /**
+     * Chat message hook to capture assistant messages
+     * 
+     * Captures the last assistant message content for completion marker detection.
+     * Extracts text from message parts and stores in session state.
+     * 
+     * This enables the session.idle handler to check if the agent signaled
+     * completion by saying the completion marker at the end of its response.
+     */
+    'chat.message': async (
+      input: {
+        sessionID: string
+        agent?: string
+        model?: { providerID: string; modelID: string }
+        messageID?: string
+        variant?: string
+      },
+      output: {
+        message: { role: string; [key: string]: unknown }
+        parts: Array<{ type: string; text?: string; [key: string]: unknown }>
+      }
+    ): Promise<void> => {
+      try {
+        const { sessionID } = input
+        const { message, parts } = output
+
+        // Only capture assistant messages (ignore user messages)
+        if (message.role !== 'assistant') {
+          return
+        }
+
+        // Extract text content from parts
+        const textContent = parts
+          .filter(part => part.type === 'text' && typeof part.text === 'string')
+          .map(part => part.text)
+          .join('\n')
+
+        // Update state with last message content
+        if (textContent) {
+          updateState(sessionID, s => {
+            s.lastMessageContent = textContent
+          })
+
+          await logDebug(loggingClient, 'Captured assistant message', {
+            sessionID,
+            messageLength: textContent.length,
+            partCount: parts.length
+          })
+        }
+      } catch (error) {
+        // Don't break on message capture errors
+        await logError(
+          loggingClient,
+          'Error capturing chat message',
           error as Error,
           { input }
         )
@@ -251,11 +320,56 @@ async function handleSessionDeleted(
 }
 
 /**
+ * Check if agent signaled completion via completion marker
+ * 
+ * Simple string contains check - if the completion marker appears ANYWHERE
+ * in the agent's last message, the agent has signaled completion.
+ * 
+ * Examples that should ALL stop reprompting:
+ * - "All done. BLOCKER_DIVERTER_DONE!"
+ * - "BLOCKER_DIVERTER_DONE! I fixed everything."
+ * - "I finished the work. BLOCKER_DIVERTER_DONE! Everything is ready."
+ * 
+ * @param state - Current session state with lastMessageContent
+ * @param config - Plugin configuration with completionMarker setting
+ * @param client - Logging client for debug output
+ * @returns true if completion marker found anywhere in message, false otherwise
+ */
+async function checkCompletionMarker(
+  state: SessionState,
+  config: PluginConfig,
+  client: LoggingClient
+): Promise<boolean> {
+  const lastMessage = state.lastMessageContent || ''
+  
+  // No message content captured yet
+  if (!lastMessage) {
+    return false
+  }
+  
+  // Simple string contains check
+  const marker = config.completionMarker
+  const markerFound = lastMessage.includes(marker)
+  
+  if (markerFound) {
+    await logDebug(client, 'Completion marker detected', {
+      marker,
+      messageLength: lastMessage.length,
+      markerPosition: lastMessage.indexOf(marker)
+    })
+  }
+  
+  return markerFound
+}
+
+/**
  * Handle session.idle event
  * 
  * Triggered when agent is waiting for user input.
  * Injects continuation prompts to keep autonomous sessions running
  * when there are logged blockers and work remains.
+ * 
+ * Checks for completion marker to detect when agent signals it's done.
  */
 async function handleSessionIdle(
   client: LoggingClient,
@@ -264,6 +378,15 @@ async function handleSessionIdle(
 ): Promise<void> {
   const state = getState(sessionId)
   const config = await loadConfig(ctx.project.worktree)
+
+  // Recovery guard - skip one idle cycle after error
+  if (state.isRecovering) {
+    updateState(sessionId, s => {
+      s.isRecovering = false
+    })
+    await logDebug(client, 'Recovery complete - skipped idle reprompt', { sessionId })
+    return
+  }
 
   await logDebug(client, 'Session idle', {
     sessionId,
@@ -286,6 +409,18 @@ async function handleSessionIdle(
     })
   }
 
+  // Check for completion marker in last agent response
+  // Store last message content in state for completion detection
+  const completionDetected = await checkCompletionMarker(state, config, client)
+  if (completionDetected) {
+    await logInfo(client, 'Completion marker detected - stopping autonomous session', { 
+      sessionId,
+      marker: config.completionMarker,
+      repromptCount: state.repromptCount
+    })
+    return
+  }
+
   // Check if we should inject continue prompt
   if (shouldContinue(state, config)) {
     // Cast client to PromptClient - OpenCode SDK has complex generic types
@@ -299,10 +434,13 @@ async function handleSessionIdle(
  * 
  * Checks multiple conditions:
  * - Feature enabled (divertBlockers)
- * - Blockers logged (work exists)
  * - Under reprompt limit (safety)
  * - Cooldown elapsed (prevent spam)
  * - No loop detected (prevent infinite loops)
+ * 
+ * In autonomous mode, the agent is prompted to continue regardless of
+ * whether blockers exist. This enables long-running sessions where the
+ * agent can work continuously without requiring blocked permissions.
  * 
  * @param state - Current session state
  * @param config - Plugin configuration
@@ -311,9 +449,6 @@ async function handleSessionIdle(
 function shouldContinue(state: SessionState, config: PluginConfig): boolean {
   // Feature disabled
   if (!state.divertBlockers) return false
-
-  // No blockers logged (no work to continue)
-  if (state.blockers.length === 0) return false
 
   // Exceeded max reprompts (safety limit)
   if (state.repromptCount >= config.maxReprompts) return false
@@ -359,6 +494,7 @@ function detectLoop(state: SessionState): boolean {
  * - Continue with non-blocking work if available
  * - Say completion marker when all work is done
  * 
+ * Uses promptAsync (non-blocking) with timeout wrapper to prevent hangs.
  * Updates state to track reprompt count and timestamp.
  * 
  * @param sessionId - Current session ID
@@ -377,7 +513,12 @@ async function injectContinuePrompt(
   try {
     const continuePrompt = getStopPrompt(sessionId, config)
 
-    await client.session.prompt(continuePrompt)
+    // Use promptAsync with timeout to prevent indefinite hangs
+    await withTimeout(
+      client.session.promptAsync(continuePrompt),
+      config.promptTimeoutMs,
+      'Continue prompt injection'
+    )
 
     // Update state
     updateState(sessionId, s => {
@@ -394,12 +535,22 @@ async function injectContinuePrompt(
       blockerCount: updatedState.blockers.length
     })
   } catch (error) {
-    await logError(
-      loggingClient,
-      'Failed to inject continuation prompt',
-      error as Error,
-      { sessionId }
-    )
+    // Log specific timeout errors separately
+    if (error instanceof TimeoutError) {
+      await logError(
+        loggingClient,
+        'Continuation prompt timed out',
+        error,
+        { sessionId, timeoutMs: config.promptTimeoutMs }
+      )
+    } else {
+      await logError(
+        loggingClient,
+        'Failed to inject continuation prompt',
+        error as Error,
+        { sessionId }
+      )
+    }
   }
 }
 
@@ -429,6 +580,20 @@ async function handleSessionError(
   error: unknown
 ): Promise<void> {
   const state = getState(sessionId)
+
+  // Handle user abort - reset reprompt state
+  if (error && typeof error === 'object' && (error as { name?: string }).name === 'MessageAbortedError') {
+    updateState(sessionId, s => {
+      s.repromptCount = 0
+      s.lastRepromptTime = 0
+    })
+    await logInfo(client, 'User aborted session - reset reprompt state', { sessionId })
+  }
+
+  // Always set recovery flag to skip next idle reprompt
+  updateState(sessionId, s => {
+    s.isRecovering = true
+  })
 
   await logError(
     client,
