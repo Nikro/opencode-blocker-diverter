@@ -2,8 +2,8 @@ import { describe, it, expect } from 'bun:test'
 import { 
   getBlockerResponse, 
   getStopPrompt, 
-  getPermissionPrompt,
   sanitizeInput,
+  getBlockerToolDefinition,
   BLOCKER_RESPONSE_MESSAGE,
   DEFAULT_COMPLETION_MARKER,
   type PromptMessage 
@@ -34,21 +34,11 @@ describe('templates utility', () => {
         cooldownMs: 60000,
         maxReprompts: 3,
         repromptWindowMs: 300000,
-        completionMarker: 'DONE'
+        completionMarker: 'DONE',
+        promptTimeoutMs: 30000
       }
       
       const result = getStopPrompt('test-session-456', config)
-      
-      expect(result).toHaveProperty('path')
-      expect(result).toHaveProperty('body')
-      expect(result.path).toHaveProperty('id')
-      expect(result.body).toHaveProperty('parts')
-      expect(Array.isArray(result.body.parts)).toBe(true)
-      expect(result.body.parts).toHaveLength(1)
-    })
-
-    it('getPermissionPrompt returns correct structure', () => {
-      const result = getPermissionPrompt('test-session-789', 'bash')
       
       expect(result).toHaveProperty('path')
       expect(result).toHaveProperty('body')
@@ -99,7 +89,8 @@ describe('templates utility', () => {
       cooldownMs: 60000,
       maxReprompts: 3,
       repromptWindowMs: 300000,
-      completionMarker: 'BLOCKER_DIVERTER_DONE!'
+      completionMarker: 'BLOCKER_DIVERTER_DONE!',
+      promptTimeoutMs: 30000
     }
 
     it('returns correct message body with sessionId in path', () => {
@@ -164,62 +155,6 @@ describe('templates utility', () => {
     })
   })
 
-  describe('getPermissionPrompt', () => {
-    it('returns correct message body with sessionId', () => {
-      const sessionId = 'session-perm-123'
-      const result = getPermissionPrompt(sessionId, 'bash')
-      
-      expect(result.path.id).toBe(sessionId)
-    })
-
-    it('mentions the permission being asked', () => {
-      const permission = 'external_directory'
-      const result = getPermissionPrompt('test-session', permission)
-      
-      expect(result.body.parts[0].text).toContain(permission)
-    })
-
-    it('instructs to use blocker tool', () => {
-      const result = getPermissionPrompt('test-session', 'bash')
-      const text = result.body.parts[0].text.toLowerCase()
-      
-      expect(text).toContain('blocker')
-    })
-
-    it('suggests continuing with work', () => {
-      const result = getPermissionPrompt('test-session', 'bash')
-      const text = result.body.parts[0].text.toLowerCase()
-      
-      expect(text).toContain('continue')
-    })
-
-    it('handles different permission types', () => {
-      const permissions = ['bash', 'edit', 'external_directory', 'custom_tool']
-      
-      permissions.forEach(permission => {
-        const result = getPermissionPrompt('test-session', permission)
-        
-        expect(result.body.parts[0].text).toContain(permission)
-        expect(result.body.parts[0].text.length).toBeGreaterThan(0)
-      })
-    })
-
-    it('text is non-empty string', () => {
-      const result = getPermissionPrompt('test-session', 'bash')
-      
-      expect(result.body.parts[0].text).toBeTruthy()
-      expect(result.body.parts[0].text.trim().length).toBeGreaterThan(0)
-    })
-
-    it('provides clear and actionable instruction', () => {
-      const result = getPermissionPrompt('test-session', 'bash')
-      const text = result.body.parts[0].text
-      
-      // Should be instructive (imperative mood)
-      expect(text.toLowerCase()).toMatch(/log|record|note|continue|proceed/)
-    })
-  })
-
   describe('Edge cases', () => {
     it('handles special characters in sessionId', () => {
       const sessionId = 'session-with-dashes_and_underscores.123'
@@ -233,16 +168,9 @@ describe('templates utility', () => {
         cooldownMs: 1000,
         maxReprompts: 3,
         repromptWindowMs: 300000,
-        completionMarker: 'DONE'
+        completionMarker: 'DONE',
+        promptTimeoutMs: 30000
       })).not.toThrow()
-      expect(() => getPermissionPrompt(sessionId, 'bash')).not.toThrow()
-    })
-
-    it('handles special characters in permission name', () => {
-      const permission = 'custom:tool/with-chars_123'
-      
-      const result = getPermissionPrompt('test-session', permission)
-      expect(result.body.parts[0].text).toContain(permission)
     })
 
     it('handles very long sessionIds', () => {
@@ -257,9 +185,75 @@ describe('templates utility', () => {
         cooldownMs: 1000,
         maxReprompts: 3,
         repromptWindowMs: 300000,
-        completionMarker: 'DONE'
+        completionMarker: 'DONE',
+        promptTimeoutMs: 30000
       })).not.toThrow()
-      expect(() => getPermissionPrompt(longSessionId, 'bash')).not.toThrow()
+    })
+  })
+
+  describe('getBlockerToolDefinition', () => {
+    it('should return valid XML string', () => {
+      const result = getBlockerToolDefinition()
+      
+      expect(result).toContain('<tools>')
+      expect(result).toContain('</tools>')
+      expect(result).toContain('<tool>')
+      expect(result).toContain('</tool>')
+    })
+    
+    it('should define blocker tool with correct name', () => {
+      const result = getBlockerToolDefinition()
+      
+      expect(result).toContain('<name>blocker</name>')
+    })
+    
+    it('should include description', () => {
+      const result = getBlockerToolDefinition()
+      
+      expect(result).toContain('<description>')
+      expect(result).toContain('Log a hard blocker')
+      expect(result).toContain('DO NOT use for soft questions')
+    })
+    
+    it('should define input schema with required fields', () => {
+      const result = getBlockerToolDefinition()
+      
+      expect(result).toContain('<input_schema>')
+      expect(result).toContain('<json_schema>')
+      expect(result).toContain('"question"')
+      expect(result).toContain('"category"')
+      expect(result).toContain('"context"')
+      expect(result).toContain('"required"')
+    })
+    
+    it('should define category enum with all valid values', () => {
+      const result = getBlockerToolDefinition()
+      
+      expect(result).toContain('"architecture"')
+      expect(result).toContain('"security"')
+      expect(result).toContain('"destructive"')
+      expect(result).toContain('"deployment"')
+      expect(result).toContain('"question"')
+      expect(result).toContain('"other"')
+    })
+    
+    it('should be valid JSON schema inside', () => {
+      const result = getBlockerToolDefinition()
+      
+      // Extract JSON schema from XML
+      const jsonMatch = result.match(/<json_schema>\s*(\{[\s\S]*\})\s*<\/json_schema>/)
+      expect(jsonMatch).toBeTruthy()
+      
+      if (jsonMatch) {
+        const jsonStr = jsonMatch[1]
+        // Should parse without error
+        expect(() => JSON.parse(jsonStr)).not.toThrow()
+        
+        const schema = JSON.parse(jsonStr)
+        expect(schema.type).toBe('object')
+        expect(schema.properties).toBeDefined()
+        expect(schema.required).toEqual(['question', 'category'])
+      }
     })
   })
 
@@ -340,14 +334,6 @@ describe('templates utility', () => {
   })
 
   describe('Security: Sanitization applied in all templates', () => {
-    it('getPermissionPrompt sanitizes permission parameter', () => {
-      const maliciousPermission = 'bash\n\nmalicious_prompt'
-      const result = getPermissionPrompt('test-session', maliciousPermission)
-      
-      expect(result.body.parts[0].text).not.toContain('\n')
-      expect(result.body.parts[0].text).toContain('bashmalicious_prompt')
-    })
-
     it('getStopPrompt sanitizes completionMarker', () => {
       const config: PluginConfig = {
         enabled: true,
@@ -357,35 +343,14 @@ describe('templates utility', () => {
         cooldownMs: 1000,
         maxReprompts: 3,
         repromptWindowMs: 300000,
-        completionMarker: 'DONE\n\nmalicious'
+        completionMarker: 'DONE\n\nmalicious',
+        promptTimeoutMs: 30000
       }
       
       const result = getStopPrompt('test-session', config)
       
       expect(result.body.parts[0].text).not.toContain('\n\n')
       expect(result.body.parts[0].text).toContain('DONEmalicious')
-    })
-
-    it('sanitization prevents prompt injection attacks', () => {
-      const injectionAttempt = "bash'; DROP TABLE users--"
-      const result = getPermissionPrompt('test-session', injectionAttempt)
-      
-      // Should still contain the content but without control chars
-      expect(result.body.parts[0].text).toContain("bash'; DROP TABLE users--")
-      expect(result.body.parts[0].text).not.toMatch(/[\n\r\t]/)
-    })
-
-    it('long inputs are truncated to prevent bloat', () => {
-      const longPermission = 'a'.repeat(500)
-      const result = getPermissionPrompt('test-session', longPermission)
-      
-      // Should be truncated to max 200 chars for the permission part
-      const textParts = result.body.parts[0].text
-      // Extract just the permission substring (between "Log this " and " permission")
-      const match = textParts.match(/Log this (.+) permission/)
-      if (match) {
-        expect(match[1].length).toBeLessThanOrEqual(200)
-      }
     })
   })
 

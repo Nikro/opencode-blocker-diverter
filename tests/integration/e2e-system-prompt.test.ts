@@ -39,7 +39,7 @@ describe('E2E: System Prompt Transform', () => {
 
   it('should inject blocker context into system prompt', async () => {
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
     // Add blocker
@@ -78,7 +78,7 @@ describe('E2E: System Prompt Transform', () => {
 
   it('should not inject when divertBlockers is disabled', async () => {
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
     const state = getState(TEST_SESSION_ID)
@@ -104,7 +104,7 @@ describe('E2E: System Prompt Transform', () => {
 
   it('should include completion marker in system prompt', async () => {
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
     const systemPromptInput = {

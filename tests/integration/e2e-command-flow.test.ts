@@ -40,7 +40,7 @@ describe('E2E: Command Flow', () => {
 
   it('should handle /blockers on command', async () => {
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
     // Disable first
@@ -48,13 +48,13 @@ describe('E2E: Command Flow', () => {
     state.divertBlockers = false
 
     // Execute command
-    await pluginHooks['tui.command.execute'](
+    await pluginHooks['command.execute.before'](
       {
-        command: '/blockers',
-        args: ['on'],
+        command: '/blockers.on',
+        arguments: '',
         sessionID: TEST_SESSION_ID,
       },
-      {}
+      { parts: [] }
     )
 
     // Verify enabled
@@ -63,19 +63,19 @@ describe('E2E: Command Flow', () => {
     expect(mockContext.client.app.log).toHaveBeenCalled()
   })
 
-  it('should handle /blockers off command', async () => {
+  it('should handle /blockers.off command', async () => {
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
     // Execute command
-    await pluginHooks['tui.command.execute'](
+    await pluginHooks['command.execute.before'](
       {
-        command: '/blockers',
-        args: ['off'],
+        command: '/blockers.off',
+        arguments: '',
         sessionID: TEST_SESSION_ID,
       },
-      {}
+      { parts: [] }
     )
 
     // Verify disabled
@@ -83,9 +83,9 @@ describe('E2E: Command Flow', () => {
     expect(state.divertBlockers).toBe(false)
   })
 
-  it('should handle /blockers status command', async () => {
+  it('should handle /blockers.status command', async () => {
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
     // Add blocker
@@ -100,28 +100,35 @@ describe('E2E: Command Flow', () => {
       blocksProgress: true,
     })
 
-    mockContext.client.app.log.mockClear()
-
     // Execute command
-    await pluginHooks['tui.command.execute'](
+    const output = { parts: [] as any[] }
+    
+    // Clear previous logs to isolate status command logs
+    mockContext.client.app.log.mockClear()
+    
+    await pluginHooks['command.execute.before'](
       {
-        command: '/blockers',
-        args: ['status'],
+        command: '/blockers.status',
+        arguments: '',
         sessionID: TEST_SESSION_ID,
       },
-      {}
+      output
     )
 
     // Verify log called with status info
     expect(mockContext.client.app.log).toHaveBeenCalled()
-    const logCall = mockContext.client.app.log.mock.calls[0][0]
-    expect(logCall.message).toContain('Status')
-    expect(logCall.message).toContain('1/50') // 1 blocker out of 50 max
+    // Find the status log call (skip the debug log)
+    const statusLogCall = mockContext.client.app.log.mock.calls.find(
+      (call: any) => call[0]?.message?.includes('Status')
+    )
+    expect(statusLogCall).toBeDefined()
+    expect(statusLogCall[0].message).toContain('Status')
+    expect(statusLogCall[0].message).toContain('1/50') // 1 blocker out of 50 max
   })
 
-  it('should handle /blockers list command', async () => {
+  it('should handle /blockers.list command', async () => {
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
     // Add blockers
@@ -149,46 +156,20 @@ describe('E2E: Command Flow', () => {
 
     mockContext.client.app.log.mockClear()
 
-    // Execute command
-    await pluginHooks['tui.command.execute'](
+    // Execute command (note: /blockers.list is NOT intercepted by hook, so no logging happens)
+    await pluginHooks['command.execute.before'](
       {
-        command: '/blockers',
-        args: ['list'],
+        command: '/blockers.list',
+        arguments: '',
         sessionID: TEST_SESSION_ID,
       },
-      {}
+      { parts: [] }
     )
 
-    // Verify log called with list
-    expect(mockContext.client.app.log).toHaveBeenCalled()
-    const logCall = mockContext.client.app.log.mock.calls[0][0]
-    expect(logCall.message).toContain('Permission question 1')
-    expect(logCall.message).toContain('Architecture question 2')
-    expect(logCall.message).toContain('[permission]')
-    expect(logCall.message).toContain('[architecture]')
-  })
-
-  it('should show help when no subcommand provided', async () => {
-    await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
-    })
-
-    mockContext.client.app.log.mockClear()
-
-    await pluginHooks['tui.command.execute'](
-      {
-        command: '/blockers',
-        args: [],
-        sessionID: TEST_SESSION_ID,
-      },
-      {}
+    // Hook should fire but not log list details (AI template handles it)
+    const debugLogCalls = mockContext.client.app.log.mock.calls.filter((call: any[]) =>
+      call[0]?.message?.includes('hook fired')
     )
-
-    // Verify help displayed
-    expect(mockContext.client.app.log).toHaveBeenCalled()
-    const logCall = mockContext.client.app.log.mock.calls[0][0]
-    expect(logCall.message).toContain('Commands')
-    expect(logCall.message).toContain('on')
-    expect(logCall.message).toContain('off')
+    expect(debugLogCalls.length).toBeGreaterThan(0)
   })
 })

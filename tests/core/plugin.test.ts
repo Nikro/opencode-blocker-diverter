@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { mkdirSync, existsSync, rmSync, statSync } from 'fs'
 import type { Plugin } from '@opencode-ai/plugin'
 import { createPlugin } from '../../src/core/plugin'
 
@@ -47,16 +48,6 @@ describe('createPlugin', () => {
     
     expect(hooks).toBeTypeOf('object')
     expect(hooks).not.toBeNull()
-  })
-
-  it('should register permission.asked hook', async () => {
-    const mockContext = createMockContext()
-    
-    const hooks = await createPlugin(mockContext)
-    
-    // Check hooks exist using property access instead of hasProperty
-    expect('permission.asked' in hooks).toBe(true)
-    expect(typeof hooks['permission.asked']).toBe('function')
   })
 
   it('should register event hook for session events', async () => {
@@ -117,7 +108,6 @@ describe('createPlugin', () => {
     const hooks = await createPlugin(mockContext)
     
     // Hooks should still be registered (enabled defaults to true)
-    expect('permission.asked' in hooks).toBe(true)
     expect('event' in hooks).toBe(true)
     expect('experimental.chat.system.transform' in hooks).toBe(true)
   })
@@ -125,12 +115,25 @@ describe('createPlugin', () => {
   it('should return empty object when plugin is disabled via config', async () => {
     const mockContext = createMockContext()
     
-    // Create opencode.json with enabled: false
-    const configPath = `${mockContext.project.worktree}/opencode.json`
+    // Create .opencode/blocker-diverter.json with enabled: false
+    const configDir = `${mockContext.project.worktree}/.opencode`
+    const configPath = `${configDir}/blocker-diverter.json`
+    
+    // Clean up if .opencode exists as a file (from previous test)
+    if (existsSync(configDir)) {
+      try {
+        const stats = statSync(configDir)
+        if (stats.isFile()) {
+          rmSync(configDir) // Remove file
+        }
+      } catch {}
+    }
+    
+    // Now create as directory
+    mkdirSync(configDir, { recursive: true })
+    
     await Bun.write(configPath, JSON.stringify({
-      blockerDiverter: {
-        enabled: false
-      }
+      enabled: false
     }))
     
     const hooks = await createPlugin(mockContext)
@@ -139,30 +142,9 @@ describe('createPlugin', () => {
     expect(Object.keys(hooks).length).toBe(0)
     
     // Cleanup
-    await Bun.write(configPath, '')
-  })
-
-  it('should pass context to permission hook', async () => {
-    const mockContext = createMockContext()
-    
-    const hooks = await createPlugin(mockContext)
-    
-    // Permission hook should exist and be callable
-    expect(hooks['permission.asked']).toBeDefined()
-    
-    // Mock permission input
-    const mockInput = {
-      sessionID: 'test-session',
-      type: 'bash',
-      title: 'Test Permission',
-      metadata: { tool: 'bash' }
+    if (existsSync(configPath)) {
+      rmSync(configPath)
     }
-    const mockOutput = { status: 'ask' as const }
-    
-    // Should not throw when called
-    await expect(
-      hooks['permission.asked']!(mockInput as any, mockOutput)
-    ).resolves.toBeUndefined()
   })
 
   it('should pass context to session hook', async () => {
@@ -177,7 +159,7 @@ describe('createPlugin', () => {
     const mockEvent = {
       event: {
         type: 'session.created',
-        session_id: 'test-session'
+        properties: { info: { id: 'test-session' } }
       }
     }
     
@@ -209,16 +191,16 @@ describe('createPlugin', () => {
   })
 
   describe('Command Registration', () => {
-    it('should register tui.command.execute hook', async () => {
+    it('should register command.execute.before hook', async () => {
       const mockContext = createMockContext()
       
       const hooks = await createPlugin(mockContext)
       
-      expect('tui.command.execute' in hooks).toBe(true)
-      expect(typeof hooks['tui.command.execute']).toBe('function')
+      expect('command.execute.before' in hooks).toBe(true)
+      expect(typeof hooks['command.execute.before']).toBe('function')
     })
     
-    it('should route /blockers status command', async () => {
+    it('should route /blockers.status command', async () => {
       const mockContext = createMockContext()
       const logSpy = mockContext.client.app.log
       
@@ -227,12 +209,14 @@ describe('createPlugin', () => {
       // Clear initialization logs
       logSpy.mockClear()
       
-      // Call command hook with status subcommand
-      await hooks['tui.command.execute']!({
-        command: '/blockers',
-        args: ['status'],
+      const output = { parts: [] as any[] }
+      
+      // Call command hook with dot-delimited command
+      await hooks['command.execute.before']!({
+        command: '/blockers.status',
+        arguments: '',
         sessionID: 'test-session'
-      } as any, {})
+      } as any, output)
       
       // Should have logged status message
       expect(logSpy).toHaveBeenCalledWith(
@@ -240,9 +224,14 @@ describe('createPlugin', () => {
           message: expect.stringContaining('Blocker Diverter Status')
         })
       )
+      
+      // Should have replaced output.parts with minimal response
+      expect(output.parts).toHaveLength(1)
+      expect(output.parts[0].type).toBe('text')
+      expect(output.parts[0].text).toContain('No further action needed')
     })
     
-    it('should route /blockers on command', async () => {
+    it('should route /blockers.on command', async () => {
       const mockContext = createMockContext()
       const logSpy = mockContext.client.app.log
       
@@ -251,12 +240,14 @@ describe('createPlugin', () => {
       // Clear initialization logs
       logSpy.mockClear()
       
-      // Call command hook with on subcommand
-      await hooks['tui.command.execute']!({
-        command: '/blockers',
-        args: ['on'],
+      const output = { parts: [] as any[] }
+      
+      // Call command hook with dot-delimited command
+      await hooks['command.execute.before']!({
+        command: '/blockers.on',
+        arguments: '',
         sessionID: 'test-session'
-      } as any, {})
+      } as any, output)
       
       // Should have logged enable message
       expect(logSpy).toHaveBeenCalledWith(
@@ -264,9 +255,12 @@ describe('createPlugin', () => {
           message: expect.stringContaining('enabled')
         })
       )
+      
+      // Should have replaced output.parts
+      expect(output.parts.length).toBeGreaterThan(0)
     })
     
-    it('should route /blockers off command', async () => {
+    it('should route /blockers.off command', async () => {
       const mockContext = createMockContext()
       const logSpy = mockContext.client.app.log
       
@@ -275,12 +269,14 @@ describe('createPlugin', () => {
       // Clear initialization logs
       logSpy.mockClear()
       
-      // Call command hook with off subcommand
-      await hooks['tui.command.execute']!({
-        command: '/blockers',
-        args: ['off'],
+      const output = { parts: [] as any[] }
+      
+      // Call command hook with dot-delimited command
+      await hooks['command.execute.before']!({
+        command: '/blockers.off',
+        arguments: '',
         sessionID: 'test-session'
-      } as any, {})
+      } as any, output)
       
       // Should have logged disable message
       expect(logSpy).toHaveBeenCalledWith(
@@ -288,9 +284,12 @@ describe('createPlugin', () => {
           message: expect.stringContaining('disabled')
         })
       )
+      
+      // Should have replaced output.parts
+      expect(output.parts.length).toBeGreaterThan(0)
     })
     
-    it('should route /blockers list command', async () => {
+    it('should allow /blockers.list command to be handled by AI template', async () => {
       const mockContext = createMockContext()
       const logSpy = mockContext.client.app.log
       
@@ -299,43 +298,23 @@ describe('createPlugin', () => {
       // Clear initialization logs
       logSpy.mockClear()
       
-      // Call command hook with list subcommand
-      await hooks['tui.command.execute']!({
-        command: '/blockers',
-        args: ['list'],
+      const output = { parts: [] as any[] }
+      
+      // Call command hook with dot-delimited command
+      await hooks['command.execute.before']!({
+        command: '/blockers.list',
+        arguments: '',
         sessionID: 'test-session'
-      } as any, {})
+      } as any, output)
       
-      // Should have logged list or no blockers message (case-insensitive)
-      const calls = logSpy.mock.calls
-      const hasBlockersMessage = calls.some((call: any) => 
-        call[0]?.message?.toLowerCase().includes('blocker')
+      // Hook should fire but not intercept (let AI template handle it)
+      const hookDebugCalls = logSpy.mock.calls.filter((call: any) =>
+        call[0]?.message?.includes('hook fired')
       )
-      expect(hasBlockersMessage).toBe(true)
-    })
-    
-    it('should show help when no subcommand provided', async () => {
-      const mockContext = createMockContext()
-      const logSpy = mockContext.client.app.log
+      expect(hookDebugCalls.length).toBeGreaterThan(0)
       
-      const hooks = await createPlugin(mockContext)
-      
-      // Clear initialization logs
-      logSpy.mockClear()
-      
-      // Call command hook without args
-      await hooks['tui.command.execute']!({
-        command: '/blockers',
-        args: [],
-        sessionID: 'test-session'
-      } as any, {})
-      
-      // Should have logged help message
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.stringContaining('Blocker Diverter Commands')
-        })
-      )
+      // List command is NOT intercepted, so output.parts should remain empty
+      expect(output.parts).toHaveLength(0)
     })
     
     it('should ignore non-blockers commands', async () => {
@@ -347,15 +326,23 @@ describe('createPlugin', () => {
       // Clear any previous calls
       logSpy.mockClear()
       
-      // Call with different command
-      await hooks['tui.command.execute']!({
-        command: '/other',
-        args: [],
-        sessionID: 'test-session'
-      } as any, {})
+      const output = { parts: [] as any[] }
       
-      // Should not have logged anything
-      expect(logSpy).not.toHaveBeenCalled()
+      // Call with different command
+      await hooks['command.execute.before']!({
+        command: '/other',
+        arguments: '',
+        sessionID: 'test-session'
+      } as any, output)
+      
+      // Should not have logged anything (except the debug log from hook itself)
+      const commandLogs = logSpy.mock.calls.filter((call: any) => 
+        !call[0]?.message?.includes('command.execute.before hook fired')
+      )
+      expect(commandLogs).toHaveLength(0)
+      
+      // Should not have modified output.parts
+      expect(output.parts).toHaveLength(0)
     })
     
     it('should handle invalid subcommands', async () => {
@@ -367,19 +354,23 @@ describe('createPlugin', () => {
       // Clear initialization logs
       logSpy.mockClear()
       
-      // Call command hook with invalid subcommand
-      await hooks['tui.command.execute']!({
-        command: '/blockers',
-        args: ['invalid'],
-        sessionID: 'test-session'
-      } as any, {})
+      const output = { parts: [] as any[] }
       
-      // Should have logged error message
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.stringContaining('Unknown subcommand')
-        })
+      // Call command hook with different command
+      await hooks['command.execute.before']!({
+        command: '/some-other-command',
+        arguments: '',
+        sessionID: 'test-session'
+      } as any, output)
+      
+      // Should not have logged anything (besides the hook debug log)
+      const blockerCalls = logSpy.mock.calls.filter((call: any) =>
+        call[0]?.message?.includes('Blocker') || call[0]?.message?.includes('blocker')
       )
+      expect(blockerCalls.length).toBe(0)
+      
+      // Output parts should remain empty (not handled)
+      expect(output.parts).toHaveLength(0)
     })
   })
 })

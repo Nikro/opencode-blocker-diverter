@@ -61,7 +61,7 @@ describe('Session Compaction Hook', () => {
 
       const output = { context: [] as string[] }
       await hooks['experimental.session.compacting'](
-        { session_id: testSessionId },
+        { sessionID: testSessionId },
         output
       )
 
@@ -89,7 +89,7 @@ describe('Session Compaction Hook', () => {
 
       const output = { context: [] as string[] }
       await hooks['experimental.session.compacting'](
-        { session_id: testSessionId },
+        { sessionID: testSessionId },
         output
       )
 
@@ -109,7 +109,7 @@ describe('Session Compaction Hook', () => {
 
       const output = { context: [] as string[] }
       await hooks['experimental.session.compacting'](
-        { session_id: testSessionId },
+        { sessionID: testSessionId },
         output
       )
 
@@ -125,7 +125,7 @@ describe('Session Compaction Hook', () => {
       // Should not throw for non-existent session
       await expect(
         hooks['experimental.session.compacting'](
-          { session_id: 'non-existent' },
+          { sessionID: 'non-existent' },
           output
         )
       ).resolves.toBeUndefined()
@@ -157,7 +157,7 @@ describe('Session Compaction Hook', () => {
 
       const output = { context: [] as string[] }
       await hooks['experimental.session.compacting'](
-        { session_id: testSessionId },
+        { sessionID: testSessionId },
         output
       )
 
@@ -183,7 +183,7 @@ describe('Session Compaction Hook', () => {
 
       const output = { context: [] as string[] }
       await hooks['experimental.session.compacting'](
-        { session_id: testSessionId },
+        { sessionID: testSessionId },
         output
       )
 
@@ -206,7 +206,7 @@ describe('Session Compaction Hook', () => {
 
       const output = { context: ['existing-context-1', 'existing-context-2'] }
       await hooks['experimental.session.compacting'](
-        { session_id: testSessionId },
+        { sessionID: testSessionId },
         output
       )
 

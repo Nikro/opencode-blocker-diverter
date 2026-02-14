@@ -200,44 +200,6 @@ export function getStopPrompt(
 }
 
 /**
- * Generate fake user response for permission questions
- * 
- * Instructs agent to log the permission request as a blocker and
- * continue with other available tasks. Used by permission.asked hook
- * to maintain autonomous operation when encountering permissions that
- * require user approval.
- * 
- * @param sessionId - Current OpenCode session identifier
- * @param permission - Permission type being requested (bash, edit, etc.)
- * @returns Formatted prompt message for session.prompt() injection
- * 
- * @example
- * ```typescript
- * const msg = getPermissionPrompt('session-789', 'bash')
- * await client.session.prompt(msg)
- * // Agent will log blocker and move to next task
- * ```
- */
-export function getPermissionPrompt(
-  sessionId: string,
-  permission: string
-): PromptMessage {
-  const sanitizedPermission = sanitizeInput(permission)
-  
-  return {
-    path: { id: sessionId },
-    body: {
-      parts: [
-        {
-          type: "text",
-          text: `Log this ${sanitizedPermission} permission request as a blocker and continue with other non-blocking tasks.`
-        }
-      ]
-    }
-  }
-}
-
-/**
  * Generate system prompt instructions for autonomous mode
  * 
  * Creates structured instructions that guide the agent's blocker handling
@@ -333,4 +295,52 @@ ${recentBlockers.map(b => `- ${sanitizeBlockerText(b.category)}: ${sanitizeBlock
 Review these before stopping.
 ` : ''}
 </blocker-diverter-mode>`
+}
+
+/**
+ * Generate blocker tool XML definition for system prompt injection
+ * 
+ * Returns Anthropic-compatible tool definition with JSON schema for arguments.
+ * Only injected when divertBlockers is enabled.
+ * 
+ * Format follows: <tools><tool><name>...</name><description>...</description><input_schema><json_schema>...</json_schema></input_schema></tool></tools>
+ * 
+ * @returns XML string containing blocker tool definition
+ * 
+ * @example
+ * ```typescript
+ * const toolXML = getBlockerToolDefinition()
+ * output.system.push(toolXML)
+ * ```
+ */
+export function getBlockerToolDefinition(): string {
+  return `<tools>
+<tool>
+  <name>blocker</name>
+  <description>Log a hard blocker question that needs human input to blockers.md and continue with independent tasks. Use this when you hit architecture decisions, security choices, destructive operations, or deployment configurations that block progress. DO NOT use for soft questions (naming, formatting) - make reasonable defaults for those.</description>
+  <input_schema>
+    <json_schema>
+      {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "The exact blocking question you need answered"
+          },
+          "category": {
+            "type": "string",
+            "enum": ["architecture", "security", "destructive", "deployment", "question", "other"],
+            "description": "Category of the blocker"
+          },
+          "context": {
+            "type": "string",
+            "description": "Additional context: what you were doing, file paths, command args, etc."
+          }
+        },
+        "required": ["question", "category"]
+      }
+    </json_schema>
+  </input_schema>
+</tool>
+</tools>`
 }

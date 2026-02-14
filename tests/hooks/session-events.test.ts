@@ -39,7 +39,7 @@ describe('Session Event Handlers', () => {
     it('should initialize state on session.created', async () => {
       const hooks = createSessionHooks(mockContext)
 
-      await hooks.event({ event: { type: 'session.created', session_id: testSessionId } })
+      await hooks.event({ event: { type: 'session.created', properties: { info: { id: testSessionId } } } })
 
       const state = getState(testSessionId)
       expect(state).toBeDefined()
@@ -51,7 +51,7 @@ describe('Session Event Handlers', () => {
     it('should log session creation', async () => {
       const hooks = createSessionHooks(mockContext)
 
-      await hooks.event({ event: { type: 'session.created', session_id: testSessionId } })
+      await hooks.event({ event: { type: 'session.created', properties: { info: { id: testSessionId } } } })
 
       expect(mockContext.client.app.log).toHaveBeenCalled()
     })
@@ -61,7 +61,7 @@ describe('Session Event Handlers', () => {
 
       // Should not throw
       await expect(
-        hooks.event({ event: { type: 'session.created' } })
+        hooks.event({ event: { type: 'session.created', properties: {} } })
       ).resolves.toBeUndefined()
 
       // Should log warning
@@ -81,7 +81,7 @@ describe('Session Event Handlers', () => {
 
       // Should not throw even if logging fails
       await expect(
-        hooks.event({ event: { type: 'session.created', session_id: testSessionId } })
+        hooks.event({ event: { type: 'session.created', properties: { info: { id: testSessionId } } } })
       ).resolves.toBeUndefined()
     })
   })
@@ -103,11 +103,11 @@ describe('Session Event Handlers', () => {
       })
 
       // Delete session
-      await hooks.event({ event: { type: 'session.deleted', session_id: testSessionId } })
+      await hooks.event({ event: { type: 'session.deleted', properties: { info: { id: testSessionId } } } })
 
-      // State should be cleaned up (getState will create new empty state)
-      const newState = getState(testSessionId)
-      expect(newState.blockers).toEqual([])
+      // State should be cleaned up - check it no longer exists in the map
+      const { hasState } = await import('../../src/state')
+      expect(hasState(testSessionId)).toBe(false)
     })
 
     it('should log session summary with blocker count', async () => {
@@ -136,7 +136,7 @@ describe('Session Event Handlers', () => {
         }
       )
 
-      await hooks.event({ event: { type: 'session.deleted', session_id: testSessionId } })
+      await hooks.event({ event: { type: 'session.deleted', properties: { info: { id: testSessionId } } } })
 
       expect(mockContext.client.app.log).toHaveBeenCalled()
     })
@@ -146,7 +146,7 @@ describe('Session Event Handlers', () => {
 
       // Should not throw when deleting non-existent session
       await expect(
-        hooks.event({ event: { type: 'session.deleted', session_id: 'non-existent' } })
+        hooks.event({ event: { type: 'session.deleted', properties: { info: { id: 'non-existent' } } } })
       ).resolves.toBeUndefined()
     })
 
@@ -154,7 +154,7 @@ describe('Session Event Handlers', () => {
       const hooks = createSessionHooks(mockContext)
 
       await expect(
-        hooks.event({ event: { type: 'session.deleted' } })
+        hooks.event({ event: { type: 'session.deleted', properties: {} } })
       ).resolves.toBeUndefined()
 
       expect(mockContext.client.app.log).toHaveBeenCalled()
@@ -165,7 +165,7 @@ describe('Session Event Handlers', () => {
     it('should log idle event', async () => {
       const hooks = createSessionHooks(mockContext)
 
-      await hooks.event({ event: { type: 'session.idle', session_id: testSessionId } })
+      await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
 
       expect(mockContext.client.app.log).toHaveBeenCalled()
     })
@@ -175,7 +175,7 @@ describe('Session Event Handlers', () => {
 
       // Don't initialize state, just trigger idle
       await expect(
-        hooks.event({ event: { type: 'session.idle', session_id: 'unknown-session' } })
+        hooks.event({ event: { type: 'session.idle', properties: { sessionID: 'unknown-session' } } })
       ).resolves.toBeUndefined()
     })
 
@@ -194,7 +194,7 @@ describe('Session Event Handlers', () => {
         blocksProgress: true
       })
 
-      await hooks.event({ event: { type: 'session.idle', session_id: testSessionId } })
+      await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
 
       // Should not throw
       expect(mockContext.client.app.log).toHaveBeenCalled()
@@ -204,7 +204,7 @@ describe('Session Event Handlers', () => {
       const hooks = createSessionHooks(mockContext)
 
       await expect(
-        hooks.event({ event: { type: 'session.idle' } })
+        hooks.event({ event: { type: 'session.idle', properties: {} } })
       ).resolves.toBeUndefined()
     })
   })
@@ -213,7 +213,7 @@ describe('Session Event Handlers', () => {
     it('should log compaction event', async () => {
       const hooks = createSessionHooks(mockContext)
 
-      await hooks.event({ event: { type: 'session.compacted', session_id: testSessionId } })
+      await hooks.event({ event: { type: 'session.compacted', properties: { sessionID: testSessionId } } })
 
       expect(mockContext.client.app.log).toHaveBeenCalled()
     })
@@ -234,7 +234,7 @@ describe('Session Event Handlers', () => {
 
       const blockerCountBefore = state.blockers.length
 
-      await hooks.event({ event: { type: 'session.compacted', session_id: testSessionId } })
+      await hooks.event({ event: { type: 'session.compacted', properties: { sessionID: testSessionId } } })
 
       expect(state.blockers.length).toBe(blockerCountBefore)
     })
@@ -243,7 +243,7 @@ describe('Session Event Handlers', () => {
       const hooks = createSessionHooks(mockContext)
 
       await expect(
-        hooks.event({ event: { type: 'session.compacted' } })
+        hooks.event({ event: { type: 'session.compacted', properties: {} } })
       ).resolves.toBeUndefined()
     })
   })
@@ -255,8 +255,10 @@ describe('Session Event Handlers', () => {
       await hooks.event({
         event: {
           type: 'session.error',
-          session_id: 'error-session',
-          error: 'Test error message'
+          properties: { 
+            sessionID: 'error-session',
+            error: 'Test error message'
+          }
         }
       })
 
@@ -280,8 +282,10 @@ describe('Session Event Handlers', () => {
       await hooks.event({
         event: {
           type: 'session.error',
-          session_id: 'error-session',
-          error: 'Test error'
+          properties: { 
+            sessionID: 'error-session',
+            error: 'Test error'
+          }
         }
       })
 
@@ -294,7 +298,7 @@ describe('Session Event Handlers', () => {
       const hooks = createSessionHooks(mockContext)
 
       await expect(
-        hooks.event({ event: { type: 'session.error', error: 'Some error' } })
+        hooks.event({ event: { type: 'session.error', properties: { error: 'Some error' } } })
       ).resolves.toBeUndefined()
     })
   })

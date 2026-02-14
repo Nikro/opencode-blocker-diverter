@@ -13,7 +13,7 @@ import type { Plugin, PluginConfig } from "../types"
 import type { LogClient } from "../config"
 import { getState } from "../state"
 import { logDebug, logError } from "../utils/logging"
-import { getSystemPromptTemplate } from "../utils/templates"
+import { getSystemPromptTemplate, getBlockerToolDefinition } from "../utils/templates"
 
 /**
  * Input structure for system prompt transform hook
@@ -83,14 +83,19 @@ export function createSystemPromptHook(
         // Generate template (config passed as parameter, no I/O)
         const template = getSystemPromptTemplate(state, config)
         
-        // Inject to system prompt array
+        // Generate blocker tool definition
+        const toolDefinition = getBlockerToolDefinition()
+        
+        // Inject both to system prompt array
         output.system.push(template)
+        output.system.push(toolDefinition)
         
         // Log injection for observability (changed to debug level)
-        await logDebug(logClient, "Injected blocker diverter system prompt", {
+        await logDebug(logClient, "Injected blocker diverter system prompt and tool definition", {
           sessionId: input.sessionID,
           modelId: input.model.id,
-          templateLength: template.length
+          templateLength: template.length,
+          toolDefinitionLength: toolDefinition.length
         })
         
       } catch (error) {

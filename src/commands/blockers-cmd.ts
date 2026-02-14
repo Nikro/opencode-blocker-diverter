@@ -1,11 +1,11 @@
 /**
- * /blockers command handler for user interaction with the plugin
+ * Command handlers for dot-delimited blocker commands
  * 
- * Provides subcommands to control and view blocker state:
- * - on: Enable blocker diversion for current session
- * - off: Disable blocker diversion for current session
- * - status: Show current state (enabled/disabled, blocker count, config)
- * - list: List all recorded blockers in current session
+ * Provides individual handlers for:
+ * - /blockers.on: Enable blocker diversion for current session
+ * - /blockers.off: Disable blocker diversion for current session
+ * - /blockers.status: Show current state (enabled/disabled, blocker count, config)
+ * - /blockers.list: List all recorded blockers in current session
  * 
  * @module commands/blockers-cmd
  */
@@ -16,122 +16,97 @@ import { getState } from '../state'
 import { logInfo } from '../utils/logging'
 
 /**
- * Context object passed to command handler
+ * Result returned from command handler
  * 
- * Provides access to OpenCode client, session ID, and plugin configuration
- * required for command execution.
+ * Indicates whether the command was fully handled (requiring only toast notification)
+ * or needs AI template processing.
  */
-export interface BlockersCommandContext {
-  /** OpenCode client for structured logging */
-  client: LogClient | undefined
+export interface CommandResult {
+  /** Whether this command was fully handled (toast shown, no AI processing needed) */
+  handled: boolean
   
-  /** OpenCode session ID where command was invoked */
-  sessionId: string
+  /** Minimal text for AI if handled (replaces output.parts) */
+  minimalResponse?: string
   
-  /** Plugin configuration (loaded from opencode.json) */
-  config: PluginConfig
-}
-
-/**
- * Handle /blockers command with subcommands
- * 
- * Routes to appropriate handler based on subcommand. Shows help if no subcommand
- * provided or if invalid subcommand given.
- * 
- * @param subcommand - Command argument (on, off, status, list, or undefined)
- * @param context - Command execution context
- * 
- * @example
- * ```typescript
- * await handleBlockersCommand('status', {
- *   client,
- *   sessionId: 'session-abc',
- *   config: loadedConfig
- * })
- * ```
- */
-export async function handleBlockersCommand(
-  subcommand: string | undefined,
-  context: BlockersCommandContext
-): Promise<void> {
-  const { client, sessionId, config } = context
-  const state = getState(sessionId)
-
-  switch (subcommand) {
-    case 'on':
-      await handleOn(state, client)
-      break
-    
-    case 'off':
-      await handleOff(state, client)
-      break
-    
-    case 'status':
-      await handleStatus(state, client, config)
-      break
-    
-    case 'list':
-      await handleList(state, client)
-      break
-    
-    case undefined:
-      // No subcommand - show help
-      await showHelp(client)
-      break
-    
-    default:
-      // Invalid subcommand - show error and help
-      await logInfo(
-        client,
-        `Unknown subcommand: ${subcommand}. Use /blockers [on|off|status|list]`
-      )
+  /** Toast notification to show (if any) */
+  toast?: {
+    title?: string
+    message: string
+    variant: 'info' | 'success' | 'warning' | 'error'
+    duration?: number
   }
 }
 
+
+
 /**
- * Handle /blockers on - Enable blocker diversion for session
+ * Handle /blockers.on - Enable blocker diversion for session
  * 
  * Modifies session state to enable blocker diversion. When enabled, the plugin
  * will intercept permission dialogs and conversational questions.
  * 
  * @param state - Session state object (mutated in place)
  * @param client - OpenCode client for logging
+ * @returns CommandResult with toast notification
  */
-async function handleOn(
+export async function handleOnCommand(
   state: SessionState,
   client: LogClient | undefined
-): Promise<void> {
+): Promise<CommandResult> {
   state.divertBlockers = true
   
   await logInfo(
     client,
     'Blocker diverter enabled for this session'
   )
+  
+  return {
+    handled: true,
+    minimalResponse: 'Blocker diverter enabled. No further action needed.',
+    toast: {
+      title: 'Blocker Diverter',
+      message: 'Enabled for this session',
+      variant: 'success',
+      duration: 3000
+    }
+  }
 }
 
 /**
- * Handle /blockers off - Disable blocker diversion for session
+ * Handle /blockers.off - Disable blocker diversion for session
  * 
  * Modifies session state to disable blocker diversion. When disabled, the plugin
  * will not intercept blockers and normal OpenCode behavior will continue.
  * 
  * @param state - Session state object (mutated in place)
  * @param client - OpenCode client for logging
+ * @returns CommandResult with toast notification
  */
-async function handleOff(
+export async function handleOffCommand(
   state: SessionState,
   client: LogClient | undefined
-): Promise<void> {
+): Promise<CommandResult> {
   state.divertBlockers = false
   
   await logInfo(
     client,
     'Blocker diverter disabled for this session'
   )
+  
+  return {
+    handled: true,
+    minimalResponse: 'Blocker diverter disabled. No further action needed.',
+    toast: {
+      title: 'Blocker Diverter',
+      message: 'Disabled for this session',
+      variant: 'success',
+      duration: 3000
+    }
+  }
 }
 
 /**
- * Handle /blockers status - Show current state and statistics
+ * Handle /blockers.status - Show current state and statistics
  * 
  * Displays:
  * - Current state (enabled/disabled)
@@ -141,12 +116,13 @@ async function handleOff(
  * @param state - Session state object
  * @param client - OpenCode client for logging
  * @param config - Plugin configuration
+ * @returns CommandResult with toast notification
  */
-async function handleStatus(
+export async function handleStatusCommand(
   state: SessionState,
   client: LogClient | undefined,
   config: PluginConfig
-): Promise<void> {
+): Promise<CommandResult> {
   const status = state.divertBlockers ? 'enabled' : 'disabled'
   const blockerCount = state.blockers.length
   const maxBlockers = config.maxBlockersPerRun
@@ -158,59 +134,60 @@ async function handleStatus(
     `  Reprompt count: ${state.repromptCount}`
   
   await logInfo(client, statusMessage)
+  
+  return {
+    handled: true,
+    minimalResponse: `Blocker diverter is ${status}. ${blockerCount}/${maxBlockers} blockers recorded. No further action needed.`,
+    toast: {
+      title: 'Blocker Diverter Status',
+      message: `${status} • ${blockerCount}/${maxBlockers} blockers`,
+      variant: 'info',
+      duration: 5000
+    }
+  }
 }
 
 /**
- * Handle /blockers list - List all recorded blockers
+ * Handle /blockers.list - List all recorded blockers
  * 
  * Displays numbered list of blockers with category and truncated question.
  * Shows message if no blockers have been recorded yet.
  * 
  * Question text is truncated to 80 characters for readability in list view.
  * 
+ * This command is NOT handled - it returns handled: false to allow the AI
+ * template to process and format the list nicely.
+ * 
  * @param state - Session state object
  * @param client - OpenCode client for logging
+ * @returns CommandResult indicating AI should handle this
  */
-async function handleList(
+export async function handleListCommand(
   state: SessionState,
   client: LogClient | undefined
-): Promise<void> {
+): Promise<CommandResult> {
+  // Keep the logging for server-side records
   if (state.blockers.length === 0) {
     await logInfo(client, 'No blockers recorded in this session')
-    return
+  } else {
+    const blockerList = state.blockers
+      .map((blocker, index) => {
+        const truncatedQuestion = 
+          blocker.question.length > 80
+            ? blocker.question.substring(0, 80) + '...'
+            : blocker.question
+        
+        return `${index + 1}. [${blocker.category}] ${truncatedQuestion}`
+      })
+      .join('\n')
+    
+    const listMessage = `Recorded Blockers (${state.blockers.length}):\n${blockerList}`
+    
+    await logInfo(client, listMessage)
   }
   
-  const blockerList = state.blockers
-    .map((blocker, index) => {
-      const truncatedQuestion = 
-        blocker.question.length > 80
-          ? blocker.question.substring(0, 80) + '...'
-          : blocker.question
-      
-      return `${index + 1}. [${blocker.category}] ${truncatedQuestion}`
-    })
-    .join('\n')
-  
-  const listMessage = `Recorded Blockers (${state.blockers.length}):\n${blockerList}`
-  
-  await logInfo(client, listMessage)
-}
-
-/**
- * Show help message with all available subcommands
- * 
- * Displays usage information for /blockers command with descriptions
- * of each subcommand.
- * 
- * @param client - OpenCode client for logging
- */
-async function showHelp(client: LogClient | undefined): Promise<void> {
-  const helpMessage = 
-    `Blocker Diverter Commands:\n` +
-    `  /blockers on      - Enable blocker diversion for this session\n` +
-    `  /blockers off     - Disable blocker diversion for this session\n` +
-    `  /blockers status  - Show current state and blocker count\n` +
-    `  /blockers list    - List all recorded blockers`
-  
-  await logInfo(client, helpMessage)
+  // Return not handled - let AI template process this
+  return {
+    handled: false
+  }
 }

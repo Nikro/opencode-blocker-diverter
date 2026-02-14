@@ -62,8 +62,10 @@ describe("System Prompt Hook", () => {
         output
       )
       
-      expect(output.system).toHaveLength(2)
+      // Should inject 2 items: system prompt template + tool definition
+      expect(output.system).toHaveLength(3) // 1 existing + 2 injected
       expect(output.system[1]).toContain("<blocker-diverter-mode")
+      expect(output.system[2]).toContain("<tools>")
     })
 
     it("should not inject when no sessionID provided", async () => {
@@ -107,10 +109,12 @@ describe("System Prompt Hook", () => {
         output
       )
       
-      expect(output.system).toHaveLength(3)
+      // Should inject 2 items: system prompt template + tool definition
+      expect(output.system).toHaveLength(4) // 2 existing + 2 injected
       expect(output.system[0]).toBe("existing1")
       expect(output.system[1]).toBe("existing2")
       expect(output.system[2]).toContain("<blocker-diverter-mode")
+      expect(output.system[3]).toContain("<tools>")
     })
 
     it("should work with empty system array", async () => {
@@ -125,8 +129,10 @@ describe("System Prompt Hook", () => {
         output
       )
       
-      expect(output.system).toHaveLength(1)
+      // Should inject 2 items: system prompt template + tool definition
+      expect(output.system).toHaveLength(2)
       expect(output.system[0]).toContain("<blocker-diverter-mode")
+      expect(output.system[1]).toContain("<tools>")
     })
   })
 

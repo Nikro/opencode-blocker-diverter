@@ -17,7 +17,6 @@ import {
   createMockContext,
   setupSpies,
   TEST_SESSION_ID,
-  createPermission,
   type MockPluginContext,
   type TestSpies,
 } from './fixtures'
@@ -42,30 +41,34 @@ describe('E2E: Session Lifecycle', () => {
   it('should manage state across complete session lifecycle', async () => {
     // Step 1: Session created
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
     const stateAfterCreate = getState(TEST_SESSION_ID)
     expect(stateAfterCreate).toBeDefined()
     expect(stateAfterCreate.blockers.length).toBe(0)
 
-    // Step 2: Add some blockers
-    const permissionInput = createPermission({
-      id: 'perm-lifecycle',
-      messageID: 'msg-lifecycle',
+    // Step 2: Add blocker via tool.execute.before with question tool
+    const toolInput = {
+      tool: 'question',
+      sessionID: TEST_SESSION_ID,
       callID: 'call-lifecycle',
-      title: 'Test',
-      metadata: { tool: 'bash', args: { command: 'test' } },
-    })
+    }
+    const toolOutput = { args: {} }
 
-    await pluginHooks['permission.asked'](permissionInput, { status: 'ask' })
+    // Tool interception throws - expected behavior
+    try {
+      await pluginHooks['tool.execute.before']!(toolInput, toolOutput)
+    } catch (error) {
+      // Expected - tool is blocked in autonomous mode
+    }
 
     const stateAfterBlocker = getState(TEST_SESSION_ID)
     expect(stateAfterBlocker.blockers.length).toBe(1)
 
     // Step 3: Session idle
     await pluginHooks.event({
-      event: { type: 'session.idle', session_id: TEST_SESSION_ID },
+      event: { type: 'session.idle', properties: { sessionID: TEST_SESSION_ID } },
     })
 
     // State should persist
@@ -74,7 +77,7 @@ describe('E2E: Session Lifecycle', () => {
 
     // Step 4: Session compacted
     await pluginHooks.event({
-      event: { type: 'session.compacted', session_id: TEST_SESSION_ID },
+      event: { type: 'session.compacted', properties: { sessionID: TEST_SESSION_ID } },
     })
 
     // State should still persist
@@ -83,7 +86,7 @@ describe('E2E: Session Lifecycle', () => {
 
     // Step 5: Session deleted
     await pluginHooks.event({
-      event: { type: 'session.deleted', session_id: TEST_SESSION_ID },
+      event: { type: 'session.deleted', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
     // Verify cleanup: getting state should create new empty state
@@ -98,30 +101,31 @@ describe('E2E: Session Lifecycle', () => {
 
     // Create session 1 and add blocker
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: session1 },
+      event: { type: 'session.created', properties: { info: { id: session1 } } },
     })
 
-    const perm1 = createPermission({
-      id: 'perm-s1',
-      sessionID: session1,
-      messageID: 'msg-s1',
-      callID: 'call-s1',
-      title: 'Session 1',
-      metadata: { tool: 'bash', args: { command: 'test1' } },
+    // Add blocker directly to session 1 state
+    const state1 = getState(session1)
+    state1.blockers.push({
+      id: 'test-blocker-s1',
+      timestamp: new Date().toISOString(),
+      sessionId: session1,
+      category: 'question',
+      question: 'Session 1 blocker',
+      context: 'test1',
+      blocksProgress: true,
     })
-
-    await pluginHooks['permission.asked'](perm1, { status: 'ask' })
 
     // Create session 2
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: session2 },
+      event: { type: 'session.created', properties: { info: { id: session2 } } },
     })
 
     // Verify isolation
-    const state1 = getState(session1)
+    const state1Check = getState(session1)
     const state2 = getState(session2)
 
-    expect(state1.blockers.length).toBe(1)
+    expect(state1Check.blockers.length).toBe(1)
     expect(state2.blockers.length).toBe(0)
 
     // Cleanup
@@ -131,16 +135,16 @@ describe('E2E: Session Lifecycle', () => {
 
   it('should handle session.error without cleanup', async () => {
     await pluginHooks.event({
-      event: { type: 'session.created', session_id: TEST_SESSION_ID },
+      event: { type: 'session.created', properties: { info: { id: TEST_SESSION_ID } } },
     })
 
-    // Add blocker
+    // Add blocker directly to state
     const state = getState(TEST_SESSION_ID)
     state.blockers.push({
       id: 'test-blocker',
       timestamp: new Date().toISOString(),
       sessionId: TEST_SESSION_ID,
-      category: 'permission',
+      category: 'question',
       question: 'Test',
       context: 'test',
       blocksProgress: true,
@@ -150,8 +154,10 @@ describe('E2E: Session Lifecycle', () => {
     await pluginHooks.event({
       event: {
         type: 'session.error',
-        session_id: TEST_SESSION_ID,
-        error: new Error('Test error'),
+        properties: {
+          sessionID: TEST_SESSION_ID,
+          error: new Error('Test error'),
+        },
       },
     })
 
