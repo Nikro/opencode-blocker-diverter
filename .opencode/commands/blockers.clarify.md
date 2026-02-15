@@ -11,11 +11,7 @@ Here are the current blockers:
 
 ---
 
-{{#if $ARGUMENTS}}
 **User instructions:** $ARGUMENTS
-
-(For example: "just the last blocker", "only architecture blockers", "skip the first one")
-{{/if}}
 
 For each blocker that does NOT already have a `### User Clarification` section:
 
