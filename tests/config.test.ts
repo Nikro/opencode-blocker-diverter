@@ -46,8 +46,8 @@ describe('ConfigSchema', () => {
 
     const result = ConfigSchema.parse(partialConfig)
     expect(result.enabled).toBe(false) // User-provided
-    expect(result.defaultDivertBlockers).toBe(true) // Default
-    expect(result.blockersFile).toBe('./blockers.md') // Default
+    expect(result.defaultDivertBlockers).toBe(false) // Changed default
+    expect(result.blockersFile).toBe('./BLOCKERS.md') // Changed default
     expect(result.maxBlockersPerRun).toBe(50) // Default
     expect(result.cooldownMs).toBe(30000) // Default
     expect(result.maxReprompts).toBe(5) // Default
@@ -60,8 +60,8 @@ describe('ConfigSchema', () => {
     
     expect(result).toEqual({
       enabled: true,
-      defaultDivertBlockers: true,
-      blockersFile: './blockers.md',
+      defaultDivertBlockers: false, // Changed default
+      blockersFile: './BLOCKERS.md', // Changed default
       maxBlockersPerRun: 50,
       cooldownMs: 30000,
       maxReprompts: 5,
@@ -169,7 +169,7 @@ describe('loadConfig', () => {
 
     expect(config.enabled).toBe(false)
     expect(config.maxBlockersPerRun).toBe(25)
-    expect(config.defaultDivertBlockers).toBe(true) // Default applied
+    expect(config.defaultDivertBlockers).toBe(false) // Changed default
 
     // Restore
     globalThis.Bun.file = originalBunFile
@@ -216,8 +216,8 @@ describe('loadConfig', () => {
     // Should return all defaults
     expect(config).toEqual({
       enabled: true,
-      defaultDivertBlockers: true,
-      blockersFile: resolve(mockProjectDir, './blockers.md'),
+      defaultDivertBlockers: false, // Changed default
+      blockersFile: resolve(mockProjectDir, './BLOCKERS.md'), // Changed default
       maxBlockersPerRun: 50,
       cooldownMs: 30000,
       maxReprompts: 5,
@@ -302,7 +302,7 @@ describe('loadConfig', () => {
     const config = await loadConfig(mockProjectDir)
 
     // Should fallback to default due to security check
-    expect(config.blockersFile).toBe(resolve(mockProjectDir, './blockers.md'))
+    expect(config.blockersFile).toBe(resolve(mockProjectDir, './BLOCKERS.md'))
 
     globalThis.Bun.file = originalBunFile
   })

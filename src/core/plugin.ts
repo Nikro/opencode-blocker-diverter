@@ -6,7 +6,7 @@
  */
 
 import { type Plugin, tool } from "@opencode-ai/plugin";
-import { loadConfig, type LogClient } from "../config";
+import { loadConfig, type LogClient, isLogClient } from "../config";
 import { handleToolExecuteBefore } from "../hooks/tool-intercept";
 import { createSessionHooks } from "../hooks/session";
 import { createSystemPromptHook } from "../hooks/system-prompt";
@@ -48,7 +48,7 @@ interface CommandOutput {
 export const createPlugin: Plugin = async (ctx) => {
   const { client, worktree } = ctx;
 
-  // Cast client to LogClient for logging functions
+  // Cast client to LogClient for logging functions (SDK types don't match internal interface)
   const logClient = client as unknown as LogClient;
 
   // Load and validate configuration (graceful degradation on errors)

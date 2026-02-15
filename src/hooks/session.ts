@@ -131,7 +131,7 @@ export function createSessionHooks(ctx: Parameters<Plugin>[0]) {
         // Dispatch based on event type
         switch (type) {
           case 'session.created':
-            await handleSessionCreated(loggingClient, sessionId as string)
+            await handleSessionCreated(loggingClient, sessionId as string, ctx)
             break
 
           case 'session.deleted':
@@ -253,10 +253,11 @@ Latest: ${JSON.stringify(recentBlockers, null, 2)}
           .map(part => part.text)
           .join('\n')
 
-        // Update state with last message content
+        // Update state with last message content and clear awaiting flag
         if (textContent) {
           updateState(sessionID, s => {
             s.lastMessageContent = textContent
+            s.awaitingAgentResponse = false // Agent responded, clear cancellation detection
           })
 
           await logDebug(loggingClient, 'Captured assistant message', {
@@ -281,18 +282,29 @@ Latest: ${JSON.stringify(recentBlockers, null, 2)}
 /**
  * Handle session.created event
  * 
- * Initializes session state with default values.
- * State is lazy-initialized by getState(), so this mainly serves
- * to log the event.
+ * Initializes session state with default values from config.
+ * Uses lazy initialization via getState(), then applies config defaults.
  */
 async function handleSessionCreated(
   client: LoggingClient,
-  sessionId: string
+  sessionId: string,
+  ctx: Parameters<Plugin>[0]
 ): Promise<void> {
   // Initialize state (lazy initialization via getState)
-  getState(sessionId)
+  const state = getState(sessionId)
+  
+  // Load config to get defaultDivertBlockers setting
+  const config = await loadConfig(ctx.project.worktree)
+  
+  // Apply config default to session state
+  updateState(sessionId, s => {
+    s.divertBlockers = config.defaultDivertBlockers
+  })
 
-  await logInfo(client, 'Session created', { sessionId })
+  await logInfo(client, 'Session created', { 
+    sessionId,
+    divertBlockers: config.defaultDivertBlockers
+  })
 }
 
 /**
@@ -392,8 +404,23 @@ async function handleSessionIdle(
     sessionId,
     divertBlockers: state.divertBlockers,
     blockersLogged: state.blockers.length,
-    repromptCount: state.repromptCount
+    repromptCount: state.repromptCount,
+    awaitingResponse: state.awaitingAgentResponse
   })
+
+  // User cancellation detection - if we're still awaiting a response from a previous
+  // prompt injection and we hit idle again, the user likely cancelled (Esc+Esc)
+  if (state.awaitingAgentResponse) {
+    await logInfo(client, 'User cancellation detected - stopping reprompts', {
+      sessionId,
+      repromptCount: state.repromptCount
+    })
+    // Clear the flag to allow future manual resumption
+    updateState(sessionId, s => {
+      s.awaitingAgentResponse = false
+    })
+    return
+  }
 
   // Reset reprompt count if outside the reprompt window
   const now = Date.now()
@@ -520,10 +547,11 @@ async function injectContinuePrompt(
       'Continue prompt injection'
     )
 
-    // Update state
+    // Update state - set awaiting flag for cancellation detection
     updateState(sessionId, s => {
       s.repromptCount++
       s.lastRepromptTime = Date.now()
+      s.awaitingAgentResponse = true // Track that we injected a prompt
     })
 
     // Get updated state after mutation for accurate logging

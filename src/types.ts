@@ -206,6 +206,15 @@ export interface SessionState {
    * Used by session.idle handler to check if agent signaled completion
    */
   lastMessageContent: string
+
+  /**
+   * Flag tracking if we injected a continuation prompt and are awaiting response
+   * Set to true when we inject a continue prompt via session.idle
+   * Cleared when we receive an assistant message via chat.message hook
+   * Used to detect user cancellation: if session.idle fires again while this is true,
+   * the user likely cancelled (Esc+Esc), so we should stop reprompting
+   */
+  awaitingAgentResponse: boolean
 }
 
 /**

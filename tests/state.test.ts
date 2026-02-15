@@ -26,7 +26,7 @@ describe('state.ts - Session State Management', () => {
 
       expect(state).toBeDefined()
       expect(state.enabled).toBe(true)
-      expect(state.divertBlockers).toBe(true)
+      expect(state.divertBlockers).toBe(false) // Changed default
       expect(state.blockers).toEqual([])
       expect(state.cooldownHashes).toBeInstanceOf(Map)
       expect(state.cooldownHashes.size).toBe(0)
@@ -35,6 +35,7 @@ describe('state.ts - Session State Management', () => {
       expect(state.repromptCount).toBe(0)
       expect(state.recentResponseHashes).toEqual([])
       expect(state.lastRepromptTime).toBe(0)
+      expect(state.awaitingAgentResponse).toBe(false)
     })
 
     it('should return same state object on subsequent calls for same session', () => {
@@ -243,7 +244,7 @@ describe('state.ts - Session State Management', () => {
 
       // Session 2 should remain unchanged
       expect(state2.enabled).toBe(true)
-      expect(state2.divertBlockers).toBe(true)
+      expect(state2.divertBlockers).toBe(false) // Changed default
       expect(state2.blockers.length).toBe(0)
       expect(state2.cooldownHashes.size).toBe(0)
       expect(state2.recentResponseHashes.length).toBe(0)

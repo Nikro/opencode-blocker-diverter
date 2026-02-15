@@ -27,7 +27,7 @@ export function getState(sessionId: string): SessionState {
   if (!state) {
     state = {
       enabled: true,
-      divertBlockers: true,
+      divertBlockers: false, // Changed to false: require explicit /blockers.on
       blockers: [],
       cooldownHashes: new Map<string, number>(),
       lastBlockerTime: Date.now(),
@@ -36,7 +36,8 @@ export function getState(sessionId: string): SessionState {
       lastRepromptTime: 0,
       isRecovering: false,
       pendingWrites: [],
-      lastMessageContent: ''
+      lastMessageContent: '',
+      awaitingAgentResponse: false
     }
     sessions.set(sessionId, state)
   }

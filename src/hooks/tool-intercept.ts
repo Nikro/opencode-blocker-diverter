@@ -9,7 +9,7 @@
  */
 
 import type { LogClient } from '../config'
-import type { PluginConfig, Blocker } from '../types'
+import type { PluginConfig, Blocker, SessionState } from '../types'
 import { getState } from '../state'
 import { generateBlockerHash, isInCooldown, addToCooldown } from '../utils/dedupe'
 import { appendBlocker } from '../utils/blockers-file'
@@ -96,7 +96,7 @@ async function handleQuestionTool(
   client: LogClient | undefined,
   config: PluginConfig,
   projectDir: string,
-  state: any
+  state: SessionState
 ): Promise<void> {
   const question = `Agent tried to use blocked tool: ${input.tool}`
   const context = JSON.stringify({

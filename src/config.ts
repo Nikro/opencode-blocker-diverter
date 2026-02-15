@@ -20,8 +20,8 @@ import { homedir } from 'os'
  * 
  * Validates all configuration fields with appropriate constraints:
  * - enabled: Global plugin toggle (default: true)
- * - defaultDivertBlockers: Default session behavior (default: true)
- * - blockersFile: Path to log file (default: './blockers.md')
+ * - defaultDivertBlockers: Default session behavior (default: false)
+ * - blockersFile: Path to log file (default: './BLOCKERS.md')
  * - maxBlockersPerRun: Session blocker limit, 1-100 (default: 50)
  * - cooldownMs: Deduplication window, min 1000ms (default: 30000)
  * - maxReprompts: Stop prevention limit, min 1 (default: 5)
@@ -31,8 +31,8 @@ import { homedir } from 'os'
  */
 export const ConfigSchema = z.object({
   enabled: z.boolean().default(true),
-  defaultDivertBlockers: z.boolean().default(true),
-  blockersFile: z.string().default('./blockers.md'),
+  defaultDivertBlockers: z.boolean().default(false),
+  blockersFile: z.string().default('./BLOCKERS.md'),
   maxBlockersPerRun: z.number().int().min(1).max(100).default(50),
   cooldownMs: z.number().int().min(1000).default(30000),
   maxReprompts: z.number().int().min(1).default(5),
@@ -61,6 +61,20 @@ export interface LogClient {
       extra?: Record<string, unknown>
     }) => Promise<void>
   }
+}
+
+/**
+ * Type guard to check if an object is a LogClient
+ * 
+ * @param client - Object to check
+ * @returns true if client has the LogClient structure
+ */
+export function isLogClient(client: unknown): client is LogClient {
+  return (
+    typeof client === 'object' &&
+    client !== null &&
+    'app' in client
+  )
 }
 
 /**
@@ -221,7 +235,7 @@ function resolveBlockersFilePath(blockersFile: string, projectDir: string): stri
     // Absolute path: validate it's within project directory
     if (!blockersFile.startsWith(absoluteProjectDir)) {
       // Path traversal detected: absolute path outside project, use default
-      return resolve(absoluteProjectDir, './blockers.md')
+      return resolve(absoluteProjectDir, './BLOCKERS.md')
     }
     return blockersFile
   }
@@ -232,7 +246,7 @@ function resolveBlockersFilePath(blockersFile: string, projectDir: string): stri
   // Security check: ensure resolved path stays within projectDir
   if (!resolvedPath.startsWith(absoluteProjectDir)) {
     // Path traversal detected (e.g., '../../../outside.md'), use default
-    return resolve(absoluteProjectDir, './blockers.md')
+    return resolve(absoluteProjectDir, './BLOCKERS.md')
   }
   
   return resolvedPath

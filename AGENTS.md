@@ -154,13 +154,11 @@ opencode-blocker-diverter/
 │   │   ├── logging.ts    # Structured logging helpers
 │   │   ├── dedupe.ts     # Cooldown hash, dedupe logic
 │   │   └── templates.ts  # Prompt template generation
-│   ├── hooks/            # (Phase 4 - not yet implemented)
-│   │   ├── permission.ts
+│   ├── hooks/
 │   │   ├── session.ts
-│   │   ├── stop.ts
-│   │   ├── compaction.ts
+│   │   ├── tool-intercept.ts
 │   │   └── system-prompt.ts
-│   └── commands/         # (Phase 5 - not yet implemented)
+│   └── commands/
 │       └── blockers-cmd.ts
 ├── tests/
 │   ├── config.test.ts

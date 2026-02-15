@@ -16,7 +16,7 @@ AI coding agents get chatty. They stop to ask questions about framework choices,
 
 **Blocker Diverter** intercepts questions and confirmations:
 
-- **Hard blockers** (architecture, security, destructive actions) → logged to `blockers.md` for morning review
+- **Hard blockers** (architecture, security, destructive actions) → logged to `BLOCKERS.md` for morning review
 - **Soft questions** (naming, formatting, minor preferences) → answered with sensible defaults
 - **Agent keeps working** on independent tasks while blocked items wait for human review
 
@@ -61,6 +61,8 @@ npm link /path/to/opencode-blocker-diverter
 
 ### Basic Usage
 
+> **⚠️ Important:** The plugin requires explicit activation via `/blockers on` command. This ensures autonomous behavior only happens when you intentionally enable it.
+
 #### AI Agent Usage (The Blocker Tool)
 
 When the Blocker Diverter plugin is active, AI agents have access to a `blocker` tool that they can actively call to log blocking questions:
@@ -103,7 +105,7 @@ await use_tool("blocker", {
 /blockers list        # Show recorded blockers
 
 # Morning workflow
-cat blockers.md       # Review overnight blockers
+cat BLOCKERS.md       # Review overnight blockers
 /blockers resolve 3 2 # Resolve blocker #3 with option 2
 ```
 
@@ -116,7 +118,7 @@ Add to `opencode.json`:
   "plugin": ["opencode-blocker-diverter"],
   "blockerDiverter": {
     "enabled": true,
-    "blockersFile": "blockers.md",
+    "blockersFile": "BLOCKERS.md",
     "maxBlockersPerRun": 20,
     "cooldown": 60000,
     "useLLMClassification": true,
@@ -138,13 +140,15 @@ Add to `opencode.json`:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enabled` | boolean | `true` | Enable plugin on session start |
-| `blockersFile` | string | `"blockers.md"` | Path to blocker log file |
-| `maxBlockersPerRun` | number | `20` | Safety limit (prevents runaway logging) |
-| `cooldown` | number | `60000` | Milliseconds to dedupe identical blockers |
-| `useLLMClassification` | boolean | `true` | Use LLM for smart classification |
-| `hardBlockerRules` | object | (see above) | Patterns for hard blocker detection |
-| `softDefaults` | object | (see above) | Default answers for soft questions |
+| `enabled` | boolean | `true` | Global plugin enable/disable (plugin loads, but requires `/blockers on` to activate autonomous mode) |
+| `defaultDivertBlockers` | boolean | `false` | Whether blocker diversion starts enabled in new sessions (requires explicit `/blockers on`) |
+| `blockersFile` | string | `"BLOCKERS.md"` | Path to blocker log file |
+| `maxBlockersPerRun` | number | `50` | Safety limit (prevents runaway logging) |
+| `cooldownMs` | number | `30000` | Milliseconds to dedupe identical blockers |
+| `maxReprompts` | number | `5` | Maximum continuation prompts before stopping |
+| `repromptWindowMs` | number | `300000` | Time window (5 min) for reprompt rate limiting |
+| `completionMarker` | string | `"BLOCKER_DIVERTER_DONE!"` | Phrase agent says when finished |
+| `promptTimeoutMs` | number | `30000` | Timeout for prompt injection API calls |
 
 ## How It Works
 
@@ -190,13 +194,13 @@ Add to `opencode.json`:
 1. **Permission Hook**: Catches tool confirmations (bash, edit, external_directory)
 2. **Session Idle Hook**: Detects conversational questions ("What next?")
 3. **LLM Classifier**: Determines hard vs soft (or rule-based patterns)
-4. **Blocker Logger**: Appends structured entry to `blockers.md`
+4. **Blocker Logger**: Appends structured entry to `BLOCKERS.md`
 5. **Prompt Injector**: Sends synthetic response to keep agent working
 6. **Stop Hook**: Prevents agent from exiting prematurely
 
 ## Blocker Log Format
 
-Example `blockers.md` entry:
+Example `BLOCKERS.md` entry:
 
 ```markdown
 ## Blocker #3
@@ -306,13 +310,11 @@ opencode-blocker-diverter/
 │   │   ├── logging.ts    # Structured logging helpers
 │   │   ├── dedupe.ts     # Cooldown hash, dedupe logic
 │   │   └── templates.ts  # Prompt template generation
-│   ├── hooks/            # (Phase 4 - not yet implemented)
-│   │   ├── permission.ts
+│   ├── hooks/
 │   │   ├── session.ts
-│   │   ├── stop.ts
-│   │   ├── compaction.ts
+│   │   ├── tool-intercept.ts
 │   │   └── system-prompt.ts
-│   └── commands/         # (Phase 5 - not yet implemented)
+│   └── commands/
 │       └── blockers-cmd.ts
 ├── tests/                # All tests with fixed imports
 │   ├── config.test.ts

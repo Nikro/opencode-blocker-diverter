@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Legacy `question` tool blocking for backward compatibility
 - **Session State Management**: Session-keyed Map pattern for tracking blockers, files modified, and plugin state
 - **Configuration System**: Zod-validated configuration with defaults and user overrides
-  - `blockersFile`: Path to blockers markdown file (default: `blockers.md`)
+  - `blockersFile`: Path to blockers markdown file (default: `BLOCKERS.md`)
   - `maxBlockersPerRun`: Limit on blockers per session (default: 50)
   - `cooldownMs`: Deduplication cooldown period (default: 30000ms)
   - `defaultDivertBlockers`: Enable/disable blocker diversion by default
@@ -55,7 +55,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Task parsing is heuristic-based, not AI-powered (future enhancement)
 - No hotkey implementation (TUI API support unclear, deferred)
 - Blocker log rotation not implemented (will be added when file size becomes an issue)
-- `session.ts` file is 608 lines (exceeds 500-line constitution limit) - refactoring planned for v0.2.0
+
+### Bug Fixes (v0.1.0)
+- **Completion Marker Detection**: Fixed infinite reprompting loop by implementing `checkCompletionMarker()` function
+  - Plugin now correctly stops when agent says `BLOCKER_DIVERTER_DONE!` anywhere in message
+  - Added `chat.message` hook to capture last assistant message content
+  - Completion detection runs before reprompt logic in `handleSessionIdle()`
+- **Rate Limiting**: Increased reprompt window from 2 minutes to 5 minutes (120s → 300s)
+  - Allows longer autonomous work sessions before rate limit resets
+  - Agent has more time to complete complex multi-step tasks
+- **Default Behavior**: Changed `defaultDivertBlockers` from `true` to `false`
+  - Plugin now requires explicit `/blockers on` command to activate
+  - Prevents unwanted autonomous behavior without user consent
+  - Session state initialization now respects config default
+- **User Cancellation Detection**: Plugin now stops reprompting when user cancels agent (Esc+Esc)
+  - Added `awaitingAgentResponse` flag to track prompt injection state
+  - Detects consecutive idle events without agent response (cancellation signal)
+  - Clears flag when agent responds, enabling resumption for future work
 
 ### Technical Details
 - **Language**: TypeScript 5.x with strict mode
@@ -70,10 +86,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned for v0.2.0
-- **Code Quality**: Refactor `session.ts` (608 lines) into smaller modules to meet 500-line constitution limit
-  - Extract session-types.ts for interfaces
-  - Extract session-helpers.ts for utility functions
-  - Maintain <400 lines per module for better maintainability
+- **Code Quality**: Consider refactoring `session.ts` (608 lines) if it becomes hard to maintain
+  - Potential split: session-types.ts, session-helpers.ts, session-idle.ts
+  - Target <400 lines per module for better maintainability
 - Compaction hook: Preserve blocker state across session compaction
 - Enhanced task tracking: AI-powered task extraction from conversation history
 - Blocker resolution tracking: Mark blockers as resolved with annotations
