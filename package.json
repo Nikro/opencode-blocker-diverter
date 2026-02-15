@@ -14,6 +14,9 @@
   },
   "files": [
     "dist/",
+    ".opencode/commands/blockers.*.md",
+    ".opencode/BLOCKERS.template.md",
+    ".opencode/blocker-diverter.json",
     "README.md",
     "LICENSE"
   ],
