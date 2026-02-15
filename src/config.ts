@@ -23,7 +23,7 @@ import { homedir } from 'os'
  * - defaultDivertBlockers: Default session behavior (default: false)
  * - blockersFile: Path to log file (default: './BLOCKERS.md')
  * - maxBlockersPerRun: Session blocker limit, 1-100 (default: 50)
- * - cooldownMs: Deduplication window, min 1000ms (default: 30000)
+ * - cooldownMs: Cooldown between reprompts, min 1000ms (default: 5000)
  * - maxReprompts: Stop prevention limit, min 1 (default: 5)
  * - repromptWindowMs: Reprompt time window, min 60000ms (default: 300000 / 5 minutes)
  * - completionMarker: Session completion marker (default: 'BLOCKER_DIVERTER_DONE!')
@@ -34,7 +34,7 @@ export const ConfigSchema = z.object({
   defaultDivertBlockers: z.boolean().default(false),
   blockersFile: z.string().default('./BLOCKERS.md'),
   maxBlockersPerRun: z.number().int().min(1).max(100).default(50),
-  cooldownMs: z.number().int().min(1000).default(30000),
+  cooldownMs: z.number().int().min(1000).default(5000),
   maxReprompts: z.number().int().min(1).default(5),
   repromptWindowMs: z.number().int().min(60000).default(300000),
   completionMarker: z.string().default('BLOCKER_DIVERTER_DONE!'),

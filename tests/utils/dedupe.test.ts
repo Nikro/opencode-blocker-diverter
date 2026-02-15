@@ -113,6 +113,10 @@ describe('isInCooldown', () => {
       repromptCount: 0,
       recentResponseHashes: [],
       lastRepromptTime: 0,
+      isRecovering: false,
+      pendingWrites: [],
+      lastMessageContent: '',
+      lastAssistantAborted: false,
     }
   })
 
@@ -199,6 +203,10 @@ describe('addToCooldown', () => {
       repromptCount: 0,
       recentResponseHashes: [],
       lastRepromptTime: 0,
+      isRecovering: false,
+      pendingWrites: [],
+      lastMessageContent: '',
+      lastAssistantAborted: false,
     }
     
     mockConfig = {
@@ -206,10 +214,11 @@ describe('addToCooldown', () => {
       defaultDivertBlockers: true,
       blockersFile: 'blockers.md',
       maxBlockersPerRun: 20,
-      cooldownMs: 30000, // 30 seconds
+      cooldownMs: 5000, // Changed from 30s to 5s
       maxReprompts: 3,
       repromptWindowMs: 300000,
       completionMarker: '---',
+      promptTimeoutMs: 30000,
     }
   })
 
@@ -229,7 +238,7 @@ describe('addToCooldown', () => {
 
   it('should update existing hash with new expiry', () => {
     const hash = 'abc123'
-    const oldExpiry = Date.now() + 5000
+    const oldExpiry = Date.now() + 1000 // 1 second from now (less than cooldown)
     
     mockState.cooldownHashes.set(hash, oldExpiry)
     
@@ -283,6 +292,10 @@ describe('dedupe integration', () => {
       repromptCount: 0,
       recentResponseHashes: [],
       lastRepromptTime: 0,
+      isRecovering: false,
+      pendingWrites: [],
+      lastMessageContent: '',
+      lastAssistantAborted: false,
     }
     
     mockConfig = {
@@ -290,10 +303,11 @@ describe('dedupe integration', () => {
       defaultDivertBlockers: true,
       blockersFile: 'blockers.md',
       maxBlockersPerRun: 20,
-      cooldownMs: 30000,
+      cooldownMs: 5000, // Changed from 30s to 5s
       maxReprompts: 3,
       repromptWindowMs: 300000,
       completionMarker: '---',
+      promptTimeoutMs: 30000,
     }
   })
 

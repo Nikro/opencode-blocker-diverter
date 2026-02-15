@@ -5,23 +5,21 @@
  * Registers all hooks and wires up the plugin lifecycle.
  */
 
-import { type Plugin, tool } from "@opencode-ai/plugin";
-import { loadConfig, type LogClient, isLogClient } from "../config";
+import type { Plugin } from "@opencode-ai/plugin";
+import { loadConfig, type LogClient } from "../config";
 import { handleToolExecuteBefore } from "../hooks/tool-intercept";
 import { createSessionHooks } from "../hooks/session";
 import { createSystemPromptHook } from "../hooks/system-prompt";
 import { 
   handleOnCommand,
-  handleOffCommand, 
+  handleOffCommand,
+  handleStopCommand,
   handleStatusCommand,
   type CommandResult 
 } from "../commands/blockers-cmd";
+import { createBlockerTool } from "../tools/blocker";
 import { getState } from "../state";
 import { logInfo, logError } from "../utils/logging";
-import { BlockerToolArgsSchema, type Blocker } from "../types";
-import { generateBlockerHash, isInCooldown, addToCooldown } from "../utils/dedupe";
-import { appendBlocker } from "../utils/blockers-file";
-import { BLOCKER_RESPONSE_MESSAGE } from "../utils/templates";
 
 /**
  * Command output structure
@@ -74,109 +72,17 @@ export const createPlugin: Plugin = async (ctx) => {
 
   // Return hook registrations
   return {
-    // Register blocker tool for AI agents to actively call
+    // Blocker tool - AI agents call this to log blocking questions
     tool: {
-      blocker: tool({
-        description: "Log a blocker question to blockers.md and continue with independent tasks. Use for hard blockers (architecture, security, destructive, deployment decisions) or soft blockers with research options. Returns success message.",
-        args: {
-          question: tool.schema.string().min(1, "Question cannot be empty").describe("The exact blocking question you need answered"),
-          category: tool.schema.enum(["architecture", "security", "destructive", "permission", "question", "other"]).describe("Category of the blocker"),
-          context: tool.schema.string().optional().default("").describe("Additional context: what you were doing, file paths, command args, etc."),
-          blocksProgress: tool.schema.boolean().optional().default(true).describe("True if this completely halts progress (hard blocker), false if you can make a default choice (soft blocker)"),
-          options: tool.schema.array(tool.schema.string()).optional().describe("For soft blockers: 3 potential choices you researched"),
-          chosenOption: tool.schema.string().optional().describe("For soft blockers: the option you chose (must be from options array)"),
-          chosenReasoning: tool.schema.string().optional().describe("For soft blockers: why you chose this option")
-        },
-        async execute(args, context) {
-          // Validate args with our stricter Zod schema (includes refinements)
-          const parseResult = BlockerToolArgsSchema.safeParse(args);
-          if (!parseResult.success) {
-            throw new Error(`Invalid blocker tool arguments: ${parseResult.error.message}`);
-          }
-
-          const validatedArgs = parseResult.data;
-          
-          // Get session ID from context (OpenCode provides this)
-          const sessionId = context.sessionID;
-          
-          // Check if plugin is enabled for this session
-          const state = getState(sessionId);
-          if (!state.divertBlockers) {
-            return "Blocker diversion is disabled for this session. Use /blockers.on to enable.";
-          }
-
-          // Check deduplication cooldown
-          const hash = await generateBlockerHash(validatedArgs.question, validatedArgs.context);
-
-          if (isInCooldown(hash, state)) {
-            await logInfo(
-              client as unknown as LogClient,
-              `Duplicate blocker skipped (cooldown): ${validatedArgs.question}`,
-              { sessionId, category: validatedArgs.category }
-            );
-            return BLOCKER_RESPONSE_MESSAGE;
-          }
-
-          // Check max blockers limit
-          if (state.blockers.length >= config.maxBlockersPerRun) {
-            await logInfo(
-              client as unknown as LogClient,
-              `Max blockers reached (${state.blockers.length}/${config.maxBlockersPerRun})`,
-              { sessionId, currentCount: state.blockers.length, maxBlockers: config.maxBlockersPerRun }
-            );
-            return BLOCKER_RESPONSE_MESSAGE;
-          }
-
-          // Create blocker from validated args
-          const blocker: Blocker = {
-            id: `${Date.now()}-${sessionId}-${hash.substring(0, 6)}`,
-            timestamp: new Date().toISOString(),
-            sessionId,
-            category: validatedArgs.category,
-            question: validatedArgs.question,
-            context: validatedArgs.context,
-            blocksProgress: validatedArgs.blocksProgress,
-            options: validatedArgs.options,
-            chosenOption: validatedArgs.chosenOption,
-            chosenReasoning: validatedArgs.chosenReasoning
-          };
-
-          // Try to write to file
-          const success = await appendBlocker(config.blockersFile, blocker, worktree);
-
-          if (success) {
-            // Add to session state
-            state.blockers.push(blocker);
-            addToCooldown(hash, state, config);
-
-            await logInfo(
-              client as unknown as LogClient,
-              `Blocker tool called: ${validatedArgs.question}`,
-              { blockerId: blocker.id, category: validatedArgs.category, sessionId }
-            );
-          } else {
-            // Failed to write - queue for retry (FR-024)
-            state.pendingWrites.push(blocker);
-            
-            await logError(
-              client as unknown as LogClient,
-              'Failed to log blocker to file, queued for retry',
-              new Error('appendBlocker returned false'),
-              { blockerId: blocker.id, sessionId, queueLength: state.pendingWrites.length }
-            );
-          }
-
-          return BLOCKER_RESPONSE_MESSAGE;
-        }
-      })
+      blocker: createBlockerTool(logClient, config, worktree),
     },
 
-    // Tool interception hook - block tools requiring user interaction (question tool)
+    // Tool interception - block question tool during autonomous mode
     "tool.execute.before": async (
       input: { tool: string; sessionID: string; callID: string },
       output: { args: any }
     ) => {
-      await handleToolExecuteBefore(input, output, client as unknown as LogClient, config, worktree);
+      await handleToolExecuteBefore(input, output, logClient, config, worktree);
     },
 
     // Session lifecycle hooks - session.created, session.deleted, session.idle, etc.
@@ -190,13 +96,6 @@ export const createPlugin: Plugin = async (ctx) => {
       input: { command: string; sessionID: string; arguments: string },
       output: CommandOutput
     ) => {
-      // DEBUG: Log that hook was called
-      await logInfo(logClient, "command.execute.before hook fired!", {
-        command: input.command,
-        arguments: input.arguments,
-        sessionID: input.sessionID
-      });
-      
       // Validate required inputs
       if (!input.sessionID || typeof input.command !== 'string') {
         await logError(
@@ -220,6 +119,9 @@ export const createPlugin: Plugin = async (ctx) => {
       }
       else if (cmd === "/blockers.off") {
         result = await handleOffCommand(state, logClient);
+      }
+      else if (cmd === "/blockers.stop") {
+        result = await handleStopCommand(state, logClient);
       }
       else if (cmd === "/blockers.status") {
         result = await handleStatusCommand(state, logClient, config);

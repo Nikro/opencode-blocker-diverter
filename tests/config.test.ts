@@ -49,7 +49,7 @@ describe('ConfigSchema', () => {
     expect(result.defaultDivertBlockers).toBe(false) // Changed default
     expect(result.blockersFile).toBe('./BLOCKERS.md') // Changed default
     expect(result.maxBlockersPerRun).toBe(50) // Default
-    expect(result.cooldownMs).toBe(30000) // Default
+    expect(result.cooldownMs).toBe(5000) // Default (changed from 30s to 5s)
     expect(result.maxReprompts).toBe(5) // Default
     expect(result.repromptWindowMs).toBe(300000) // Default (5 minutes)
     expect(result.completionMarker).toBe('BLOCKER_DIVERTER_DONE!') // Default
@@ -63,7 +63,7 @@ describe('ConfigSchema', () => {
       defaultDivertBlockers: false, // Changed default
       blockersFile: './BLOCKERS.md', // Changed default
       maxBlockersPerRun: 50,
-      cooldownMs: 30000,
+      cooldownMs: 5000, // Changed default (from 30s to 5s)
       maxReprompts: 5,
       repromptWindowMs: 300000,
       completionMarker: 'BLOCKER_DIVERTER_DONE!',
@@ -219,7 +219,7 @@ describe('loadConfig', () => {
       defaultDivertBlockers: false, // Changed default
       blockersFile: resolve(mockProjectDir, './BLOCKERS.md'), // Changed default
       maxBlockersPerRun: 50,
-      cooldownMs: 30000,
+      cooldownMs: 5000, // Changed default (from 30s to 5s)
       maxReprompts: 5,
       repromptWindowMs: 300000,
       completionMarker: 'BLOCKER_DIVERTER_DONE!',
@@ -389,7 +389,7 @@ describe('loadConfig', () => {
 
     // Should return defaults
     expect(config.maxBlockersPerRun).toBe(50)
-    expect(config.cooldownMs).toBe(30000)
+    expect(config.cooldownMs).toBe(5000) // Changed default (from 30s to 5s)
 
     globalThis.Bun.file = originalBunFile
   })

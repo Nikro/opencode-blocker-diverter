@@ -123,21 +123,20 @@ describe('E2E: Complete User Scenario', () => {
     expect((statusLog![0] as Record<string, unknown>).message).toContain('enabled')
     expect((statusLog![0] as Record<string, unknown>).message).toContain('1/50')
 
-    // Step 7: User runs /blockers list → sees blocker
-    mockContext.client.app.log.mockClear()
+    // Step 7: User runs /blockers list → AI template should handle it
+    // /blockers.list is NOT intercepted by the command hook, so it passes through
+    const listOutput = { parts: [] }
     await pluginHooks['command.execute.before'](
       {
         command: '/blockers.list',
         arguments: '',
         sessionID: TEST_SESSION_ID,
       },
-      { parts: [] }
+      listOutput
     )
 
-    // /blockers.list is NOT intercepted by hook, so only debug log fires
-    expect(mockContext.client.app.log).toHaveBeenCalled()
-    const debugLog = mockContext.client.app.log.mock.calls[0][0]
-    expect(debugLog.message).toContain('hook fired')
+    // Output should remain empty since command is not intercepted
+    expect(listOutput.parts).toHaveLength(0)
 
     // Step 8: Session compacted → blocker preserved
     const compactionInput = { sessionID: TEST_SESSION_ID }

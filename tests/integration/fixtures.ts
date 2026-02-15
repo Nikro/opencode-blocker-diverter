@@ -104,9 +104,9 @@ export function setupSpies(): TestSpies {
   const loadConfigSpy = spyOn(configModule, 'loadConfig').mockResolvedValue({
     enabled: true,
     defaultDivertBlockers: true,
-    blockersFile: resolve(TEST_PROJECT_DIR, './blockers.md'),
+    blockersFile: resolve(TEST_PROJECT_DIR, './BLOCKERS.md'),
     maxBlockersPerRun: 50,
-    cooldownMs: 30000,
+    cooldownMs: 5000, // Changed from 30s to 5s
     maxReprompts: 5,
     repromptWindowMs: 300000,
     completionMarker: 'BLOCKER_DIVERTER_DONE!',

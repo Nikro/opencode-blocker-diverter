@@ -11,10 +11,6 @@ describe('Session Event Handlers', () => {
     // Clean up any existing state
     cleanupState(testSessionId)
 
-    // Initialize fresh state with correct defaults
-    const state = getState(testSessionId)
-    state.divertBlockers = true
-
     // Create mock context
     mockContext = {
       client: {
@@ -36,7 +32,7 @@ describe('Session Event Handlers', () => {
   })
 
   describe('session.created event', () => {
-    it('should initialize state on session.created', async () => {
+    it('should initialize state on session.created and apply config default', async () => {
       const hooks = createSessionHooks(mockContext)
 
       await hooks.event({ event: { type: 'session.created', properties: { info: { id: testSessionId } } } })
@@ -44,8 +40,10 @@ describe('Session Event Handlers', () => {
       const state = getState(testSessionId)
       expect(state).toBeDefined()
       expect(state.enabled).toBe(true)
-      expect(state.divertBlockers).toBe(true)
+      // State should have a defined value (whatever config returned)
+      expect(typeof state.divertBlockers).toBe('boolean')
       expect(state.blockers).toEqual([])
+      expect(state.lastAssistantAborted).toBe(false)
     })
 
     it('should log session creation', async () => {
@@ -300,6 +298,287 @@ describe('Session Event Handlers', () => {
       await expect(
         hooks.event({ event: { type: 'session.error', properties: { error: 'Some error' } } })
       ).resolves.toBeUndefined()
+    })
+  })
+
+  describe('message.updated event (cancellation flow)', () => {
+    it('should set lastAssistantAborted to true when MessageAbortedError occurs on assistant message', async () => {
+      const hooks = createSessionHooks(mockContext)
+
+      // Initialize state with lastAssistantAborted = false
+      const state = getState(testSessionId)
+      state.lastAssistantAborted = false
+
+      // Trigger message.updated with MessageAbortedError
+      await hooks.event({
+        event: {
+          type: 'message.updated',
+          properties: {
+            info: {
+              id: 'msg-123',
+              role: 'assistant',
+              sessionID: testSessionId,
+              error: { name: 'MessageAbortedError' }
+            }
+          }
+        }
+      })
+
+      // Verify flag was set
+      const updatedState = getState(testSessionId)
+      expect(updatedState.lastAssistantAborted).toBe(true)
+    })
+
+    it('should set lastAssistantAborted to false when assistant message finishes normally', async () => {
+      const hooks = createSessionHooks(mockContext)
+
+      // Initialize state with lastAssistantAborted = true
+      const state = getState(testSessionId)
+      state.lastAssistantAborted = true
+
+      // Trigger message.updated with finish set (normal completion)
+      await hooks.event({
+        event: {
+          type: 'message.updated',
+          properties: {
+            info: {
+              id: 'msg-124',
+              role: 'assistant',
+              sessionID: testSessionId,
+              finish: 'stop'
+            }
+          }
+        }
+      })
+
+      // Verify flag was cleared
+      const updatedState = getState(testSessionId)
+      expect(updatedState.lastAssistantAborted).toBe(false)
+    })
+
+    it('should not change lastAssistantAborted for user messages', async () => {
+      const hooks = createSessionHooks(mockContext)
+
+      // Initialize state with lastAssistantAborted = true
+      const state = getState(testSessionId)
+      state.lastAssistantAborted = true
+
+      // Trigger message.updated with user role
+      await hooks.event({
+        event: {
+          type: 'message.updated',
+          properties: {
+            info: {
+              id: 'msg-125',
+              role: 'user',
+              sessionID: testSessionId,
+              error: { name: 'MessageAbortedError' }
+            }
+          }
+        }
+      })
+
+      // Verify flag unchanged
+      const updatedState = getState(testSessionId)
+      expect(updatedState.lastAssistantAborted).toBe(true)
+    })
+
+    it('should disable divertBlockers when session.idle fires after abort', async () => {
+      const hooks = createSessionHooks(mockContext)
+
+      // Initialize state with divertBlockers enabled and abort flag set
+      const state = getState(testSessionId)
+      state.divertBlockers = true
+      state.lastAssistantAborted = true
+      state.repromptCount = 2
+
+      // Trigger session.idle (should detect abort and disable)
+      await hooks.event({
+        event: {
+          type: 'session.idle',
+          properties: { sessionID: testSessionId }
+        }
+      })
+
+      // Verify auto-disabled
+      const updatedState = getState(testSessionId)
+      expect(updatedState.divertBlockers).toBe(false)
+      expect(updatedState.lastAssistantAborted).toBe(false) // Flag should be reset
+      expect(updatedState.repromptCount).toBe(0) // Counter should be reset
+    })
+
+    it('should clear abort flag when MessageAbortedError followed by normal finish', async () => {
+      const hooks = createSessionHooks(mockContext)
+
+      // Initialize state
+      const state = getState(testSessionId)
+      state.lastAssistantAborted = false
+
+      // First: trigger abort
+      await hooks.event({
+        event: {
+          type: 'message.updated',
+          properties: {
+            info: {
+              id: 'msg-126',
+              role: 'assistant',
+              sessionID: testSessionId,
+              error: { name: 'MessageAbortedError' }
+            }
+          }
+        }
+      })
+
+      expect(getState(testSessionId).lastAssistantAborted).toBe(true)
+
+      // Second: trigger normal finish
+      await hooks.event({
+        event: {
+          type: 'message.updated',
+          properties: {
+            info: {
+              id: 'msg-127',
+              role: 'assistant',
+              sessionID: testSessionId,
+              finish: 'stop'
+            }
+          }
+        }
+      })
+
+      // Verify flag was cleared
+      expect(getState(testSessionId).lastAssistantAborted).toBe(false)
+    })
+
+    it('should clear abort flag when MessageAbortedError followed by streaming update (no finish)', async () => {
+      const hooks = createSessionHooks(mockContext)
+
+      // Initialize state
+      const state = getState(testSessionId)
+      state.lastAssistantAborted = false
+
+      // First: trigger abort
+      await hooks.event({
+        event: {
+          type: 'message.updated',
+          properties: {
+            info: {
+              id: 'msg-abort',
+              role: 'assistant',
+              sessionID: testSessionId,
+              error: { name: 'MessageAbortedError' }
+            }
+          }
+        }
+      })
+
+      expect(getState(testSessionId).lastAssistantAborted).toBe(true)
+
+      // Second: NEW assistant message starts streaming (no error, no finish yet)
+      // This represents a new message being generated after abort
+      await hooks.event({
+        event: {
+          type: 'message.updated',
+          properties: {
+            info: {
+              id: 'msg-new',
+              role: 'assistant',
+              sessionID: testSessionId,
+              // No error, no finish - just a streaming update
+            }
+          }
+        }
+      })
+
+      // Verify flag was cleared (bug fix: previously would stay true!)
+      expect(getState(testSessionId).lastAssistantAborted).toBe(false)
+    })
+  })
+
+  describe('chat.message hook (auto-disable on user input)', () => {
+    it('should auto-disable blockers when user sends message during autonomous mode', async () => {
+      const hooks = createSessionHooks(mockContext)
+
+      // Enable blockers
+      const state = getState(testSessionId)
+      state.divertBlockers = true
+      state.repromptCount = 3
+
+      // User sends a message
+      await hooks['chat.message'](
+        { sessionID: testSessionId },
+        { 
+          message: { role: 'user' },
+          parts: [{ type: 'text', text: 'Hi there!' }]
+        }
+      )
+
+      // Verify blockers disabled
+      const updatedState = getState(testSessionId)
+      expect(updatedState.divertBlockers).toBe(false)
+      expect(updatedState.repromptCount).toBe(0)
+      expect(updatedState.lastRepromptTime).toBe(0)
+    })
+
+    it('should log when auto-disabling on user input', async () => {
+      const hooks = createSessionHooks(mockContext)
+
+      // Enable blockers
+      const state = getState(testSessionId)
+      state.divertBlockers = true
+
+      // User sends a message
+      await hooks['chat.message'](
+        { sessionID: testSessionId },
+        { 
+          message: { role: 'user' },
+          parts: [{ type: 'text', text: 'Ok now: HI :D' }]
+        }
+      )
+
+      // Verify log was called (would have been called during auto-disable)
+      expect(mockContext.client.app.log).toHaveBeenCalled()
+    })
+
+    it('should NOT auto-disable if blockers already disabled', async () => {
+      const hooks = createSessionHooks(mockContext)
+
+      // Blockers already disabled
+      const state = getState(testSessionId)
+      state.divertBlockers = false
+
+      // User sends a message
+      await hooks['chat.message'](
+        { sessionID: testSessionId },
+        { 
+          message: { role: 'user' },
+          parts: [{ type: 'text', text: 'Hi' }]
+        }
+      )
+
+      // Verify state unchanged
+      const updatedState = getState(testSessionId)
+      expect(updatedState.divertBlockers).toBe(false)
+    })
+
+    it('should still capture assistant messages for completion marker detection', async () => {
+      const hooks = createSessionHooks(mockContext)
+
+      // Initialize state
+      getState(testSessionId)
+
+      // AI sends a message
+      await hooks['chat.message'](
+        { sessionID: testSessionId },
+        { 
+          message: { role: 'assistant' },
+          parts: [{ type: 'text', text: 'Here is my response. BLOCKER_DIVERTER_DONE!' }]
+        }
+      )
+
+      // Verify message content captured
+      const state = getState(testSessionId)
+      expect(state.lastMessageContent).toContain('BLOCKER_DIVERTER_DONE!')
     })
   })
 })

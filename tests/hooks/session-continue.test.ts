@@ -143,7 +143,7 @@ describe('Session Idle - Continue Prompt Injection', () => {
       blocksProgress: true
     })
     state.repromptCount = 1
-    state.lastRepromptTime = Date.now() - 10000 // 10 seconds ago (cooldown is 30s default)
+    state.lastRepromptTime = Date.now() - 2000 // 2 seconds ago (cooldown is 5s now)
 
     // Fire session.idle
     await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
@@ -168,7 +168,7 @@ describe('Session Idle - Continue Prompt Injection', () => {
       blocksProgress: true
     })
     state.repromptCount = 1
-    state.lastRepromptTime = Date.now() - 35000 // 35 seconds ago (beyond 30s cooldown)
+    state.lastRepromptTime = Date.now() - 6000 // 6 seconds ago (beyond 5s cooldown)
 
     // Fire session.idle
     await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })

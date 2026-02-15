@@ -69,9 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents unwanted autonomous behavior without user consent
   - Session state initialization now respects config default
 - **User Cancellation Detection**: Plugin now stops reprompting when user cancels agent (Esc+Esc)
-  - Added `awaitingAgentResponse` flag to track prompt injection state
-  - Detects consecutive idle events without agent response (cancellation signal)
-  - Clears flag when agent responds, enabling resumption for future work
+  - Added `lastAssistantAborted` state tracked from `message.updated` events
+  - Detects cancellation via `MessageAbortedError` in assistant message updates
+  - Clears abort state on normal assistant completion (`finish` updates)
 
 ### Technical Details
 - **Language**: TypeScript 5.x with strict mode

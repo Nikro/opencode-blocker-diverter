@@ -4,9 +4,144 @@
 **Type**: TypeScript plugin extending OpenCode's hook system  
 **Status**: In development (v0.1.0 pre-release)
 
-## Project Overview
+⚠️ **IMPORTANT**: If implementation deviates from this guide, update this file immediately to reflect reality.
 
-This is an **OpenCode plugin** that enables autonomous overnight coding sessions by intercepting blocker questions and allowing the AI agent to continue working on independent tasks.
+## What We're Building
+
+### The Problem
+
+AI coding agents stop to ask questions. During an autonomous overnight session, an agent might encounter:
+- Architecture decisions: "Which authentication framework should I use?"
+- Security choices: "Should I hash passwords with bcrypt or argon2?"
+- Destructive operations: "Should I delete this deprecated module?"
+- Deployment config: "Which hosting provider should I deploy to?"
+
+When any of these questions arise, the agent stops and waits for human input. The entire autonomous session grinds to a halt, defeating the purpose of overnight runs.
+
+### The Solution
+
+**Blocker Diverter** provides AI agents with a `blocker` tool they can actively call to log questions and continue working on independent tasks. Instead of stopping the session, blockers are written to `BLOCKERS.md` for human review in the morning.
+
+#### How It Works
+
+1. **Tool Registration**: Plugin registers a `blocker` tool that agents can call
+2. **System Prompt Injection**: Plugin adds autonomous mode instructions to the agent's system prompt
+3. **Agent Encounters Blocker**: Agent hits a decision point requiring human input
+4. **Agent Calls Tool**: Agent explicitly calls `blocker` tool with structured context:
+   ```typescript
+   await use_tool("blocker", {
+     question: "Which authentication framework should I use?",
+     category: "architecture",
+     context: "Task: #3 'Add user auth' | Action: Setting up auth middleware | Files: src/auth/index.ts:45 | Progress: Created route handlers",
+     blocksProgress: true
+   })
+   ```
+5. **Validation & Deduplication**: Plugin validates args, checks cooldown (prevents spam)
+6. **Persistence**: Appends blocker to `BLOCKERS.md` with full context
+7. **Response**: Returns fixed message: "Great, blocker registered, move on with the next non-blocking issues!"
+8. **Agent Continues**: Agent moves to independent parallel work
+
+#### Auto-Disable Safety
+
+Plugin automatically disables when:
+- User sends a manual message (detected via `chat.message` hook)
+- User cancels AI response (abort detection via `message.updated` hook)
+- User interrupts active generation
+
+This prevents the plugin from interfering with interactive debugging sessions.
+
+#### Stop Signal & Reprompts
+
+When the agent tries to stop:
+- **Stop Hook** checks if work remains (unresolved blockers, incomplete tasks)
+- If blockers exist: injects "continue" prompt to keep agent working
+- Rate limiting: max 5 reprompts per 5-minute window (prevents infinite loops)
+- Agent signals completion: says `"BLOCKER_DIVERTER_DONE!"` when truly finished
+
+#### Retry Mechanism
+
+If file write fails (disk full, permissions):
+- Blocker queued in `state.pendingWrites` array
+- Next successful blocker write triggers retry for queued items
+- Prevents losing blockers due to transient I/O errors
+
+### What We've Built
+
+**Core Components:**
+
+1. **Blocker Tool** (`src/tools/blocker.ts`):
+   - Primary interface for AI agents
+   - Zod schema validation for args
+   - Hash-based deduplication with configurable cooldown
+   - Structured context requirements enforced via descriptions
+   - Support for hard blockers (need human) and soft blockers (agent chooses default)
+
+2. **System Prompt Transform** (`src/hooks/system-prompt.ts`):
+   - Injects autonomous mode instructions
+   - Provides decision framework (hard vs soft)
+   - Includes structured context requirements
+   - Shows recent blockers for session awareness
+
+3. **Session Management** (`src/hooks/session.ts`):
+   - Session lifecycle (created, deleted, idle, compacted)
+   - Message hook for auto-disable on user input
+   - Abort detection for cancellation handling
+   - Compaction hook to preserve blocker state across session compression
+
+4. **Stop Hook** (`src/hooks/session.ts`):
+   - Prevents premature exit when work remains
+   - Rate-limited reprompt injection
+   - Timeout protection (30s default) to prevent hangs
+   - Detects completion marker phrase
+
+5. **Command Interface** (`src/commands/blockers-cmd.ts`):
+   - `/blockers.on` - Enable autonomous mode (shows toast + dummy message)
+   - `/blockers.off` - Disable (back to interactive mode)
+   - `/blockers.status` - Show current state (enabled/disabled, blocker count)
+   - `/blockers.list` - Display all logged blockers for session
+
+6. **File I/O** (`src/utils/blockers-file.ts`):
+   - Async append to `BLOCKERS.md`
+   - Path validation (prevent directory traversal)
+   - Input sanitization (prevent injection attacks)
+   - Retry queue for transient failures
+
+7. **Configuration** (`src/config.ts`):
+   - Loads from `.opencode/blocker-diverter.json` (project-specific)
+   - Falls back to `~/.config/opencode/blocker-diverter.json` (user defaults)
+   - Zod schema validation
+   - Sensible defaults for all settings
+
+**Test Coverage**: 355 tests across 22 files, covering unit, integration, and E2E scenarios.
+
+### Source Code Organization
+
+```
+src/
+├── core/plugin.ts       # Plugin factory - registers all hooks and tools
+├── types.ts             # TypeScript interfaces (Blocker, SessionState, PluginConfig)
+├── config.ts            # Config loading with Zod validation
+├── state.ts             # Session-keyed state Map (no global variables)
+├── tools/
+│   └── blocker.ts       # Blocker tool definition (primary agent interface)
+├── hooks/
+│   ├── session.ts       # Session lifecycle, message, stop hooks (777 lines - needs splitting)
+│   ├── system-prompt.ts # System prompt injection for autonomous mode
+│   └── tool-intercept.ts # Legacy question tool interception (backward compat)
+├── commands/
+│   └── blockers-cmd.ts  # Command handlers (/blockers.on, .off, .status, .list)
+└── utils/
+    ├── templates.ts      # Prompt templates and system prompt generation
+    ├── blockers-file.ts  # File I/O for BLOCKERS.md
+    ├── dedupe.ts         # Hash-based deduplication with cooldown
+    ├── logging.ts        # Structured logging via client.app.log()
+    └── with-timeout.ts   # Promise timeout wrapper
+```
+
+**Note**: `src/hooks/session.ts` is 777 lines, violating the 500-line constitution limit. Future work should split into:
+- `session-events.ts` - Session lifecycle handlers
+- `session-messages.ts` - Message and abort detection
+- `session-stop.ts` - Stop hook and reprompt logic
 
 ### Key Context for AI Agents
 
@@ -46,98 +181,19 @@ This is an **OpenCode plugin** that enables autonomous overnight coding sessions
 - ESLint + Prettier
 - Bun test runner (built-in)
 
-## Spec-Kit Workflow (FOR AI AGENTS)
+## Spec-Kit Workflow
 
-This project uses **spec-kit** commands for structured development. Follow this workflow:
+This project uses **spec-kit** commands for structured development:
 
-```
-╔══════════════════════════════════════════════════════════════╗
-║  🤖 Spec-Kit Development Workflow (CORRECT ORDER)            ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║  0️⃣ /speckit.constitution → PROJECT PRINCIPLES (ONCE)       ║
-║     • Define code quality standards                         ║
-║     • Establish testing discipline                          ║
-║     • Set architectural constraints                         ║
-║     OUTPUT: constitution.md created                         ║
-║                                                              ║
-║  1️⃣ /speckit.specify → WHAT & WHY (requirements)            ║
-║     • User stories with acceptance criteria                 ║
-║     • Functional requirements (technology-agnostic)         ║
-║     • Success criteria (measurable outcomes)                ║
-║     OUTPUT: specs/###-feature-name/spec.md                  ║
-║                                                              ║
-║  2️⃣ /speckit.clarify → RESOLVE AMBIGUITIES (before plan!)   ║
-║     • Structured Q&A for underspecified areas               ║
-║     • Edge case clarification                               ║
-║     • Scope boundary definition                             ║
-║     OUTPUT: Updated spec.md with clarifications             ║
-║                                                              ║
-║  3️⃣ /speckit.plan → HOW (technical implementation)          ║
-║     • Choose tech stack (TypeScript, Bun, Zod, etc.)        ║
-║     • Define module structure                               ║
-║     • Architecture decisions & tradeoffs                    ║
-║     OUTPUT: plan.md, research.md, data-model.md             ║
-║                                                              ║
-║  4️⃣ /speckit.tasks → ACTIONABLE BREAKDOWN                   ║
-║     • Task-by-task implementation plan                      ║
-║     • Dependency ordering                                   ║
-║     • Parallel execution markers                            ║
-║     OUTPUT: tasks.md with ordered work items                ║
-║                                                              ║
-║  5️⃣ /speckit.implement → EXECUTE TASKS                      ║
-║     • TDD: Write tests FIRST                                ║
-║     • Implement to pass tests                               ║
-║     • Refactor while keeping tests green                    ║
-║     OUTPUT: Working code with 80%+ coverage                 ║
-║                                                              ║
-║  🔄 ITERATE: Use /speckit.clarify anytime specs unclear     ║
-╚══════════════════════════════════════════════════════════════╝
-```
+1. `/speckit.specify` → Define requirements
+2. `/speckit.clarify` → Resolve ambiguities (do this before planning!)
+3. `/speckit.plan` → Technical design
+4. `/speckit.tasks` → Break down work
+5. `/speckit.implement` → Execute with TDD
 
-### Critical Rules for AI Agents
+⚠️ **Always run `/speckit.clarify` BEFORE `/speckit.plan`** to prevent rework.
 
-⚠️ **ALWAYS run `/speckit.clarify` BEFORE `/speckit.plan`**:
-- Prevents rework downstream
-- Resolves ambiguous requirements
-- Documents architectural decisions
-- Establishes scope boundaries
-
-⚠️ **NEVER skip constitution** on new projects:
-- First command should be `/speckit.constitution`
-- All subsequent work is governed by these principles
-- Constitution guides planning and implementation decisions
-
-⚠️ **The correct order is STRICT**:
-1. Constitution (once) → 2. Specify → 3. Clarify → 4. Plan → 5. Tasks → 6. Implement
-
-⚠️ **ALWAYS write tests first** (`/speckit.implement` step):
-```typescript
-// ❌ WRONG: Implementing without tests
-export function classifyBlocker(q: string) { ... }
-
-// ✅ CORRECT: Tests first
-describe('classifyBlocker', () => {
-  it('should detect hard blocker keywords', async () => {
-    expect(await classifyBlocker("Which framework?")).toBe("hard")
-  })
-})
-// NOW implement classifyBlocker
-```
-
-### When to Use Each Command
-
-| Situation | Command | Action |
-|-----------|---------|--------|
-| User says "build authentication hook" but doesn't specify which permission | `/speckit.clarify` | Ask: "Which permissions should this hook intercept? (bash, edit, external_directory, all?)" |
-| Starting new module (e.g., classifier.ts) | `/speckit.plan` | Design: interfaces, dependencies, module boundaries |
-| Plan approved, need implementation details | `/speckit.tasks` | Break down: ordered tasks with file paths, dependencies |
-| Spec approved, ready to code | `/speckit.implement` | Implement: TDD cycle (test → code → refactor) |
-
-📚 **Spec-Kit Resources:**
-- [Constitution](.specify/memory/constitution.md) — Project governance
-- [Spec-Kit Docs](https://github.com/github/spec-kit) — Command reference
-- [TDD Guide](https://bun.sh/docs/cli/test) — Bun test runner
+📚 **Resources**: [Constitution](.specify/memory/constitution.md) · [Spec-Kit Docs](https://github.com/github/spec-kit)
 
 ## Project Structure
 
@@ -153,27 +209,53 @@ opencode-blocker-diverter/
 │   ├── utils/
 │   │   ├── logging.ts    # Structured logging helpers
 │   │   ├── dedupe.ts     # Cooldown hash, dedupe logic
-│   │   └── templates.ts  # Prompt template generation
+│   │   ├── templates.ts  # Prompt template generation
+│   │   ├── blockers-file.ts  # File I/O for BLOCKERS.md
+│   │   └── with-timeout.ts   # Async timeout wrapper utility
 │   ├── hooks/
-│   │   ├── session.ts
-│   │   ├── tool-intercept.ts
-│   │   └── system-prompt.ts
+│   │   ├── session.ts        # Session lifecycle and message hooks
+│   │   ├── tool-intercept.ts # Legacy question tool interception
+│   │   └── system-prompt.ts  # System prompt injection hook
+│   ├── tools/
+│   │   └── blocker.ts    # Blocker tool definition (primary interface)
 │   └── commands/
-│       └── blockers-cmd.ts
-├── tests/
+│       └── blockers-cmd.ts  # Command handlers (/blockers.*)
+├── tests/               # Comprehensive test suite (355 tests)
 │   ├── config.test.ts
 │   ├── state.test.ts
-│   └── utils/
-│       ├── logging.test.ts
-│       ├── dedupe.test.ts
-│       └── templates.test.ts
+│   ├── core/
+│   │   └── plugin.test.ts
+│   ├── hooks/
+│   │   ├── session-events.test.ts
+│   │   ├── system-prompt.test.ts
+│   │   └── tool-intercept.test.ts
+│   ├── utils/
+│   │   ├── logging.test.ts
+│   │   ├── dedupe.test.ts
+│   │   ├── templates.test.ts
+│   │   ├── blockers-file.test.ts
+│   │   └── with-timeout.test.ts
+│   ├── commands/
+│   │   └── blockers-cmd.test.ts
+│   ├── tools/
+│   │   └── blocker.test.ts
+│   └── integration/
+│       ├── e2e-command-flow.test.ts
+│       └── e2e-complete-scenario.test.ts
 ├── dist/                 # Build output (gitignored)
 │   ├── index.js         # Bundled plugin
 │   ├── index.d.ts       # TypeScript declarations
 │   └── src/             # Type definition modules
+├── .opencode/
+│   └── commands/        # Blocker command templates (committed)
+│       ├── blockers.on.md
+│       ├── blockers.off.md
+│       ├── blockers.status.md
+│       └── blockers.list.md
 ├── package.json          # NPM package manifest
 ├── tsconfig.json         # TypeScript configuration
-└── .npmignore            # Files excluded from npm package
+├── .npmignore            # Files excluded from npm package
+└── BLOCKERS.md          # Plugin output (gitignored)
 ```
 
 ### File Responsibilities (MUST NOT VIOLATE)
@@ -187,6 +269,7 @@ opencode-blocker-diverter/
 | `src/state.ts` | 100-150 | 200 | Session Map CRUD operations |
 | `src/utils/*.ts` | 100-250 each | 300 | Pure utility functions |
 | `src/hooks/*.ts` | 150-300 each | 400 | One hook per file |
+| `src/tools/*.ts` | 100-200 each | 250 | Tool definitions and handlers |
 | `src/commands/*.ts` | 150-250 each | 350 | Command parsing + execution |
 
 **General Rule:** Target 300-400 lines for complex modules. If approaching hard limit, split into sub-modules.
@@ -234,50 +317,67 @@ export const BlockerDiverter: Plugin = async (client) => {
 
 ## Hook Reference
 
-### Primary Hooks (MUST IMPLEMENT)
+### Primary Interface: Blocker Tool
 
-#### 1. Permission Hook
+The plugin provides a `blocker` tool that AI agents call directly to log blocking questions:
+
 ```typescript
-"permission.asked": async (input, output) => {
-  // input: { permission, sessionID, tool, args, patterns }
-  // output: { status: "allow" | "deny" | "ask" }
-  
-  // Intercepts BEFORE user sees "Allow/Deny" dialog
-  // Classify blocker, log if hard, return synthetic response
+// From src/tools/blocker.ts
+tool({
+  description: "Log a blocker question to blockers.md and continue with independent tasks...",
+  args: {
+    question: tool.schema.string().min(1).describe("The exact blocking question..."),
+    category: tool.schema.enum(["architecture", "security", "destructive", "permission", "question", "other"]),
+    context: tool.schema.string().optional().describe("STRUCTURED context with task reference, action, file paths, progress..."),
+    blocksProgress: tool.schema.boolean().optional().default(true),
+    options: tool.schema.array(tool.schema.string()).optional(),
+    chosenOption: tool.schema.string().optional(),
+    chosenReasoning: tool.schema.string().optional()
+  },
+  async execute(args, context) {
+    // Validation, deduplication, persistence, state management
+    return BLOCKER_RESPONSE_MESSAGE
+  }
+})
+```
+
+### Primary Hooks (CURRENTLY IMPLEMENTED)
+
+#### 1. Tool Registration
+```typescript
+"tool": {
+  blocker: createBlockerTool(logClient, config, worktree)
 }
 ```
 
-#### 2. Session Idle Hook
+#### 2. System Prompt Transform
 ```typescript
-event: async ({ event }) => {
+"experimental.chat.system.transform": async (input, output) => {
+  output.system.push(getSystemPromptTemplate(state, config))
+  output.system.push(getBlockerToolDefinition())
+}
+```
+
+#### 3. Session Event Hook
+```typescript
+"event": async ({ event }) => {
+  if (event.type === "session.created") {
+    // Initialize session state
+  }
+  if (event.type === "session.deleted") {
+    // Cleanup state
+  }
   if (event.type === "session.idle") {
-    // Agent finished turn, waiting for input
-    // Detect conversational questions, inject "continue" prompt
+    // Detect idle state, potentially reprompt
   }
 }
 ```
 
-#### 3. Stop Hook
+#### 4. Message Hook (Auto-disable on User Input)
 ```typescript
-stop: async (input) => {
-  // Agent tries to stop
-  // Check if work remains, inject "continue" prompt if needed
-  
-  await client.session.prompt({
-    path: { id: sessionId },
-    body: { parts: [{ type: "text", text: "Continue with next task" }] }
-  })
-}
-```
-
-### Secondary Hooks (RECOMMENDED)
-
-#### 4. System Prompt Transform
-```typescript
-"experimental.chat.system.transform": async (input, output) => {
-  output.system.push(`<blocker-diverter-mode>
-    Autonomous mode active. Log hard blockers, make default choices for soft questions.
-  </blocker-diverter-mode>`)
+"chat.message": async (input) => {
+  // Auto-disable divertBlockers when user sends manual message
+  // Shows toast: "🛑 Blocker diverter auto-disabled (user input detected)"
 }
 ```
 
@@ -285,17 +385,34 @@ stop: async (input) => {
 ```typescript
 "experimental.session.compacting": async (input, output) => {
   // Preserve blocker state across compaction
-  output.context.push(`<active-blockers>${blockerSummary}</active-blockers>`)
+  output.context.push(`<active-blockers>...</active-blockers>`)
 }
 ```
 
-#### 6. Tool Execution Hook
+#### 6. Stop Hook
 ```typescript
-"tool.execute.after": async (input) => {
-  // Track progress (files modified, commits made)
-  if (input.tool === "edit") {
-    state.filesModified.push(input.args.filePath)
+"stop": async (input) => {
+  // Check if work remains, inject "continue" prompt if needed
+  // Prevents premature exit
+}
+```
+
+#### 7. Command Hook
+```typescript
+"tui.command.execute": async (input) => {
+  if (input.command === "/blockers") {
+    // Handle /blockers.on, .off, .status, .list
   }
+}
+```
+
+### Secondary Hooks (LEGACY/DEPRECATED)
+
+#### Tool Intercept Hook (Legacy)
+```typescript
+"tool.execute.before": async (input) => {
+  // Legacy: intercepts "question" tool from old OpenCode versions
+  // Kept for backward compatibility but not primary interface
 }
 ```
 
@@ -473,7 +590,7 @@ import { z } from 'zod'
 
 export const ConfigSchema = z.object({
   enabled: z.boolean().default(true),
-  blockersFile: z.string().default("blockers.md"),
+  blockersFile: z.string().default("BLOCKERS.md"),
   maxBlockersPerRun: z.number().int().positive().default(20),
   cooldown: z.number().int().positive().default(60000),
   useLLMClassification: z.boolean().default(true),

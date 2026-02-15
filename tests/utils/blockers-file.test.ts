@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { resolve, join } from 'node:path'
 import { rm, mkdir, readFile, writeFile } from 'node:fs/promises'
-import { appendBlocker, getBlockerCount, rotateIfNeeded } from '../../src/utils/blockers-file'
+import { appendBlocker, getBlockerCount, rotateIfNeeded, clearTemplateCache } from '../../src/utils/blockers-file'
 import type { Blocker } from '../../src/types'
 
 describe('blockers-file', () => {
@@ -35,6 +35,9 @@ describe('blockers-file', () => {
   beforeEach(async () => {
     // Create temp directory
     await mkdir(tempDir, { recursive: true })
+    
+    // Clear template cache to ensure test isolation
+    clearTemplateCache()
   })
 
   afterEach(async () => {
@@ -128,7 +131,7 @@ describe('blockers-file', () => {
       
       const content = await readFile(join(tempDir, mockFilePath), 'utf-8')
       expect(content).toContain('## Blocker #')
-      expect(content).toContain('**Time:**')
+      expect(content).toContain('**Timestamp:**')
       expect(content).toContain('**Session:**')
       expect(content).toContain('**Category:** architecture')
       expect(content).toContain('### Question')
@@ -398,6 +401,160 @@ Content
       
       const newCount = await getBlockerCount(mockFilePath, tempDir)
       expect(newCount).toBe(1)
+    })
+  })
+
+  describe('template system', () => {
+    it('should use default template when custom template does not exist', async () => {
+      // No custom template in tempDir/.opencode/
+      const result = await appendBlocker(mockFilePath, sampleBlocker, tempDir)
+      
+      expect(result).toBe(true)
+      
+      const content = await readFile(join(tempDir, mockFilePath), 'utf-8')
+      // Default template format
+      expect(content).toContain('## Blocker #')
+      expect(content).toContain('**Timestamp:**')
+      expect(content).toContain('**Session:**')
+      expect(content).toContain('**Category:**')
+      expect(content).toContain('### Question')
+      expect(content).toContain('### Context')
+      expect(content).toContain('### Additional Info')
+      expect(content).toContain('Blocks Progress:')
+    })
+
+    it('should use custom template from .opencode/BLOCKERS.template.md', async () => {
+      // Create custom template
+      const opencodeDir = join(tempDir, '.opencode')
+      await mkdir(opencodeDir, { recursive: true })
+      
+      const customTemplate = `
+# BLOCKER {{id}}
+Time: {{timestamp}}
+Session: {{sessionId}}
+Type: {{category}}
+
+Q: {{question}}
+Context: {{context}}
+
+Progress blocked: {{blocksProgress}}
+
+{{optionsSection}}
+{{chosenSection}}
+---
+`
+      
+      await writeFile(join(opencodeDir, 'BLOCKERS.template.md'), customTemplate, 'utf-8')
+      
+      // Clear cache to force reload
+      const { clearTemplateCache } = await import('../../src/utils/blockers-file')
+      clearTemplateCache()
+      
+      // Append blocker
+      const result = await appendBlocker(mockFilePath, sampleBlocker, tempDir)
+      
+      expect(result).toBe(true)
+      
+      const content = await readFile(join(tempDir, mockFilePath), 'utf-8')
+      // Custom template format
+      expect(content).toContain('# BLOCKER')
+      expect(content).toContain('Time: 2026-02-13T10:00:00Z')
+      expect(content).toContain('Session: session-123')
+      expect(content).toContain('Type: permission')
+      expect(content).toContain('Q: Allow bash command: git status?')
+      expect(content).toContain('Context: Checking repository status')
+      expect(content).toContain('Progress blocked: Yes')
+    })
+
+    it('should render optional sections correctly', async () => {
+      const opencodeDir = join(tempDir, '.opencode')
+      await mkdir(opencodeDir, { recursive: true })
+      
+      const customTemplate = `
+## Blocker {{id}}
+{{question}}
+{{optionsSection}}
+{{chosenSection}}
+---
+`
+      
+      await writeFile(join(opencodeDir, 'BLOCKERS.template.md'), customTemplate, 'utf-8')
+      
+      const { clearTemplateCache } = await import('../../src/utils/blockers-file')
+      clearTemplateCache()
+      
+      const richBlocker: Blocker = {
+        ...sampleBlocker,
+        options: ['Option A', 'Option B', 'Option C'],
+        chosenOption: 'Option B',
+        chosenReasoning: 'Best performance'
+      }
+      
+      const result = await appendBlocker(mockFilePath, richBlocker, tempDir)
+      
+      expect(result).toBe(true)
+      
+      const content = await readFile(join(tempDir, mockFilePath), 'utf-8')
+      expect(content).toContain('### Options Considered')
+      expect(content).toContain('1. Option A')
+      expect(content).toContain('2. Option B')
+      expect(content).toContain('3. Option C')
+      expect(content).toContain('### Chosen Option')
+      expect(content).toContain('Option B')
+      expect(content).toContain('### Reasoning')
+      expect(content).toContain('Best performance')
+    })
+
+    it('should cache template per project directory', async () => {
+      // Create custom template BEFORE any calls
+      const opencodeDir = join(tempDir, '.opencode')
+      await mkdir(opencodeDir, { recursive: true })
+      await writeFile(
+        join(opencodeDir, 'BLOCKERS.template.md'),
+        '# Custom {{id}}\n{{question}}\n---\n',
+        'utf-8'
+      )
+      
+      // First call - loads custom template
+      await appendBlocker(mockFilePath, sampleBlocker, tempDir)
+      
+      // Modify template AFTER first call (should still use cached version)
+      await writeFile(
+        join(opencodeDir, 'BLOCKERS.template.md'),
+        '# Modified {{id}}\n{{question}}\n---\n',
+        'utf-8'
+      )
+      
+      // Second call - should use CACHED custom template (not modified version)
+      const blocker2: Blocker = {
+        ...sampleBlocker,
+        id: 'blocker-2',
+      }
+      await appendBlocker(mockFilePath, blocker2, tempDir)
+      
+      const content = await readFile(join(tempDir, mockFilePath), 'utf-8')
+      // Should use cached "Custom" format, not "Modified"
+      expect(content).toContain('# Custom')
+      expect(content).not.toContain('# Modified')
+    })
+
+    it('should sanitize markdown in template variables', async () => {
+      const maliciousBlocker: Blocker = {
+        ...sampleBlocker,
+        question: '## Blocker #999\n**Injected Header**',
+        context: '```malicious code```\nAnd more ```evil```',
+      }
+      
+      const result = await appendBlocker(mockFilePath, maliciousBlocker, tempDir)
+      
+      expect(result).toBe(true)
+      
+      const content = await readFile(join(tempDir, mockFilePath), 'utf-8')
+      // Blocker header markers should be escaped
+      expect(content).toContain('\\## Blocker #999')
+      // Code blocks should be escaped
+      expect(content).toContain('\\`\\`\\`malicious code\\`\\`\\`')
+      expect(content).toContain('\\`\\`\\`evil\\`\\`\\`')
     })
   })
 })

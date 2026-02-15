@@ -53,11 +53,16 @@ export async function handleOnCommand(
   state: SessionState,
   client: LogClient | undefined
 ): Promise<CommandResult> {
+  const wasDiverted = state.divertBlockers
   state.divertBlockers = true
   
   await logInfo(
     client,
-    'Blocker diverter enabled for this session'
+    'Blocker diverter enabled for this session',
+    { 
+      previousState: wasDiverted,
+      newState: true
+    }
   )
   
   return {
@@ -86,11 +91,16 @@ export async function handleOffCommand(
   state: SessionState,
   client: LogClient | undefined
 ): Promise<CommandResult> {
+  const wasDiverted = state.divertBlockers
   state.divertBlockers = false
   
   await logInfo(
     client,
-    'Blocker diverter disabled for this session'
+    'Blocker diverter disabled for this session',
+    {
+      previousState: wasDiverted,
+      newState: false
+    }
   )
   
   return {
@@ -104,6 +114,48 @@ export async function handleOffCommand(
     }
   }
 }
+
+/**
+ * Handle /blockers.stop - Emergency stop for autonomous loop
+ * 
+ * Immediately disables blocker diversion AND clears all reprompt state.
+ * Use this when the agent is stuck in an infinite loop and cancellation
+ * detection (Esc+Esc) is not working.
+ * 
+ * This is more aggressive than .off - it also:
+ * - Clears lastAssistantAborted flag
+ * - Resets reprompt count
+ * 
+ * @param state - Session state object
+ * @param client - OpenCode client for logging
+ * @returns CommandResult with toast notification
+ */
+export async function handleStopCommand(
+  state: SessionState,
+  client: LogClient | undefined
+): Promise<CommandResult> {
+  state.divertBlockers = false
+  state.lastAssistantAborted = false
+  state.repromptCount = 0
+  state.lastRepromptTime = 0
+  
+  await logInfo(
+    client,
+    'Blocker diverter STOPPED (emergency halt)'
+  )
+  
+  return {
+    handled: true,
+    minimalResponse: 'Blocker diverter STOPPED. All autonomous behavior halted.',
+    toast: {
+      title: 'Blocker Diverter',
+      message: '⛔ STOPPED - Loop halted',
+      variant: 'error',
+      duration: 5000
+    }
+  }
+}
+
 
 /**
  * Handle /blockers.status - Show current state and statistics

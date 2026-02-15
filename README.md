@@ -22,13 +22,13 @@ AI coding agents get chatty. They stop to ask questions about framework choices,
 
 ## Features
 
-- 🚫 **Permission interception** — catches "Allow/Deny" dialogs before they reach you
-- 🤖 **LLM-based classification** — distinguishes hard blockers from soft questions
-- 📝 **Structured blocker log** — morning-friendly format with context, options, and tradeoffs
-- ⚙️ **Configurable rules** — customize what counts as a blocker, set defaults for soft questions
-- 🔥 **Deduplication** — prevents blocker spam via cooldown mechanism
-- 💬 **Command interface** — `/blockers on|off|status|list` for easy control
-- 🎹 **TUI hotkey** — quick toggle without breaking flow
+- 🚫 **Tool-based interface** — AI agents actively call `blocker` tool to log questions
+- 🤖 **Structured context** — Requires task reference, file paths, and progress details
+- 📝 **Markdown blocker log** — Morning-friendly format in `BLOCKERS.md`
+- ⚙️ **Configurable via commands** — `/blockers.on`, `/blockers.off`, `/blockers.status`, `/blockers.list`
+- 🔥 **Deduplication** — Prevents blocker spam via cooldown mechanism
+- 🛑 **Auto-disable** — Turns off when user sends message, cancels, or interrupts AI
+- 🔄 **Retry mechanism** — Queues failed writes for later retry
 
 ## Quick Start
 
@@ -61,321 +61,186 @@ npm link /path/to/opencode-blocker-diverter
 
 ### Basic Usage
 
-> **⚠️ Important:** The plugin requires explicit activation via `/blockers on` command. This ensures autonomous behavior only happens when you intentionally enable it.
+> **⚠️ Important:** The plugin requires explicit activation via `/blockers.on` command. This ensures autonomous behavior only happens when you intentionally enable it.
 
-#### AI Agent Usage (The Blocker Tool)
-
-When the Blocker Diverter plugin is active, AI agents have access to a `blocker` tool that they can actively call to log blocking questions:
-
-```typescript
-// AI agent encounters a hard blocker
-await use_tool("blocker", {
-  question: "Which authentication provider should I use?",
-  category: "architecture",
-  context: "Building user login system. Files: src/auth/provider.ts, src/middleware/auth.ts"
-})
-// Returns: "Great, blocker registered, move on with the next non-blocking issues!"
-```
-
-**Categories:**
-- `architecture` — Framework/library selection, design patterns
-- `security` — Authentication, authorization, data protection
-- `destructive` — Delete operations, data migrations
-- `deployment` — Hosting, CI/CD, environment configuration
-- `question` — General questions requiring human input
-- `other` — Uncategorized blockers
-
-**When agents should use it:**
-- Hard decisions requiring human judgment (framework choice, security strategy)
-- Destructive operations (deleting files, dropping tables)
-- Deployment/configuration choices (hosting provider, CI/CD setup)
-
-**When agents should NOT use it:**
-- Naming conventions (make reasonable default: `getUserData`)
-- Code formatting (follow project style: Prettier/ESLint)
-- Minor refactoring choices (use existing patterns)
-
-#### User Commands
+**Enabling the plugin:**
 
 ```bash
-# In OpenCode session
-/blockers on          # Enable blocker diverter
-/blockers off         # Disable (back to normal interactive mode)
-/blockers status      # Check current state
-/blockers list        # Show recorded blockers
+# In OpenCode TUI
+/blockers.on
+```
 
-# Morning workflow
-cat BLOCKERS.md       # Review overnight blockers
-/blockers resolve 3 2 # Resolve blocker #3 with option 2
+This will:
+1. Show a toast notification: "✅ Blocker diverter enabled for this session"
+2. Send a dummy message to the AI to acknowledge the change
+3. Enable autonomous mode for the current session
+
+**The plugin automatically disables when you:**
+- Send any manual message to the AI
+- Cancel an AI response (Ctrl+C or abort button)
+- Interrupt active AI generation
+
+When auto-disabled, you'll see: "🛑 Blocker diverter auto-disabled (user input detected)"
+
+**Other commands:**
+
+```bash
+/blockers.off          # Manually disable autonomous mode
+/blockers.status       # Check if enabled and see blocker count
+/blockers.list         # View all blockers logged in this session
 ```
 
 ## Configuration
 
-Add to `opencode.json`:
+The plugin works out-of-the-box with sensible defaults. Most users will never need to configure anything manually — just use the `/blockers.*` commands.
+
+<details>
+<summary><strong>Advanced: Configuration File</strong> (optional)</summary>
+
+If needed, create `.opencode/blocker-diverter.json` in your project:
 
 ```json
 {
-  "plugin": ["opencode-blocker-diverter"],
-  "blockerDiverter": {
-    "enabled": true,
-    "blockersFile": "BLOCKERS.md",
-    "maxBlockersPerRun": 20,
-    "cooldown": 60000,
-    "useLLMClassification": true,
-    "hardBlockerRules": {
-      "keywords": ["framework", "auth", "deploy", "migration", "delete", "security"],
-      "patterns": ["^Which .+ should", "^Should I use", "^Delete .+\\?"],
-      "categories": ["architecture", "security", "destructive", "deployment"]
-    },
-    "softDefaults": {
-      "naming": "use descriptive camelCase",
-      "formatting": "follow project Prettier config",
-      "refactoring": "prefer composition over inheritance"
-    }
-  }
+  "enabled": true,
+  "blockersFile": "BLOCKERS.md",
+  "maxBlockersPerRun": 50,
+  "cooldownMs": 30000,
+  "maxReprompts": 5,
+  "repromptWindowMs": 300000,
+  "completionMarker": "BLOCKER_DIVERTER_DONE!",
+  "promptTimeoutMs": 30000
 }
 ```
 
-### Configuration Options
+**Key settings:**
+- `blockersFile` — Where to log blockers (default: `BLOCKERS.md`)
+- `maxBlockersPerRun` — Safety limit to prevent runaway logging (default: 50)
+- `cooldownMs` — Milliseconds to deduplicate identical blockers (default: 30000)
+- `maxReprompts` — Max continuation prompts before stopping (default: 5)
+- `completionMarker` — Phrase agent says when finished (default: `BLOCKER_DIVERTER_DONE!`)
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `enabled` | boolean | `true` | Global plugin enable/disable (plugin loads, but requires `/blockers on` to activate autonomous mode) |
-| `defaultDivertBlockers` | boolean | `false` | Whether blocker diversion starts enabled in new sessions (requires explicit `/blockers on`) |
-| `blockersFile` | string | `"BLOCKERS.md"` | Path to blocker log file |
-| `maxBlockersPerRun` | number | `50` | Safety limit (prevents runaway logging) |
-| `cooldownMs` | number | `30000` | Milliseconds to dedupe identical blockers |
-| `maxReprompts` | number | `5` | Maximum continuation prompts before stopping |
-| `repromptWindowMs` | number | `300000` | Time window (5 min) for reprompt rate limiting |
-| `completionMarker` | string | `"BLOCKER_DIVERTER_DONE!"` | Phrase agent says when finished |
-| `promptTimeoutMs` | number | `30000` | Timeout for prompt injection API calls |
+</details>
 
 ## How It Works
 
-### Architecture
+When you run `/blockers.on`, the plugin:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  OpenCode Agent Loop                                        │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │  1. Agent wants to execute tool (bash, edit, etc.)  │  │
-│  │  2. Permission system checks if approval needed     │  │
-│  └────────────┬─────────────────────────────────────────┘  │
-│               │                                             │
-│               ▼                                             │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │  Blocker Diverter Plugin Hooks                       │  │
-│  │                                                       │  │
-│  │  permission.asked → Intercept before user sees it   │  │
-│  │  session.idle     → Detect "done but actually not"  │  │
-│  │  stop             → Prevent premature exit          │  │
-│  └────────────┬─────────────────────────────────────────┘  │
-│               │                                             │
-│               ▼                                             │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │  Classification (LLM-based or rule-based)            │  │
-│  │  ┌─────────────┐         ┌─────────────┐            │  │
-│  │  │ HARD        │         │ SOFT        │            │  │
-│  │  │ BLOCKER     │         │ QUESTION    │            │  │
-│  │  └──────┬──────┘         └──────┬──────┘            │  │
-│  │         │                       │                    │  │
-│  │         ▼                       ▼                    │  │
-│  │  Log to          Apply                              │  │
-│  │  blockers.md     default                            │  │
-│  │  + inject        + continue                         │  │
-│  │  "continue"                                          │  │
-│  │  prompt                                              │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
+1. Adds instructions to the AI's system prompt about using the `blocker` tool
+2. Provides the AI with a `blocker` tool it can call when stuck
+3. Monitors session events to auto-disable on user interaction
 
-### Hook Flow
+When the AI encounters a blocking decision:
 
-1. **Permission Hook**: Catches tool confirmations (bash, edit, external_directory)
-2. **Session Idle Hook**: Detects conversational questions ("What next?")
-3. **LLM Classifier**: Determines hard vs soft (or rule-based patterns)
-4. **Blocker Logger**: Appends structured entry to `BLOCKERS.md`
-5. **Prompt Injector**: Sends synthetic response to keep agent working
-6. **Stop Hook**: Prevents agent from exiting prematurely
+1. AI calls `blocker` tool with question, category, and structured context
+2. Plugin validates, deduplicates (cooldown), and logs to `BLOCKERS.md`
+3. Plugin responds: "Great, blocker registered, move on!"
+4. AI continues with independent tasks
+
+If AI tries to stop prematurely:
+- Plugin injects "continue" prompt if blockers remain unresolved
+- Rate-limited to prevent infinite loops (max 5 reprompts per 5 minutes)
+
+AI signals true completion by saying: `"BLOCKER_DIVERTER_DONE!"`
 
 ## Blocker Log Format
 
-Example `BLOCKERS.md` entry:
+Blockers are logged to `BLOCKERS.md` in a structured markdown format:
 
 ```markdown
-## Blocker #3
-**Time:** 2026-02-12T02:34:12Z
-**Branch:** feature/user-auth
-**Session:** abc123-def456
+## Blocker #1771161981594-ses_abc123-5db59e
+**Timestamp:** 2026-02-15T14:32:10.594Z  
+**Session:** ses_abc123-def456  
+**Category:** architecture
 
-### What I'm blocked on
-Need to choose authentication provider for user login system
+### Question
+Which authentication framework should I use for the user login system?
 
-### Why it matters
-Security-critical decision. Wrong choice = costly migration later.
-Affects token strategy, session management, and third-party integrations.
+### Context
+Task: #3 "Implement user authentication"  
+Action: Setting up JWT token validation middleware  
+Files: src/middleware/auth.ts:45, src/config/jwt.ts  
+Progress: Created auth middleware skeleton, installed jsonwebtoken package  
+Blocker: Need to decide between RS256 (asymmetric) vs HS256 (symmetric) signing
 
-### Options
-1. **Auth0** — Full-featured, expensive, vendor lock-in risk
-2. **Supabase Auth** — Open-source friendly, PostgreSQL-based, less mature
-3. **Custom JWT** — Full control, high maintenance burden, security risk
-
-### Default if no answer
-Option 2 (Supabase Auth) — balances open-source values with maintainability
-
-### Files involved
-- src/auth/provider.ts
-- src/middleware/auth.ts
-- .env.example
-
-### Last tool output
-```
-$ npm search auth provider
-... (truncated for brevity)
-```
+### Additional Info
+Blocks Progress: Yes
 
 ---
 ```
 
-## Commands
+<details>
+<summary><strong>Customizing the Format</strong></summary>
 
-### `/blockers on`
-Enable blocker diverter for current session.
+You can customize the blocker log format per-project by creating `.opencode/BLOCKERS.template.md`:
 
-### `/blockers off`
-Disable blocker diverter (back to normal interactive mode).
+```markdown
+## Blocker #{{id}}
+**Time:** {{timestamp}}  
+**Session:** {{sessionId}}  
+**Category:** {{category}}
 
-### `/blockers status`
-Show current state: enabled/disabled, blocker count, last action.
+### Question
+{{question}}
 
-### `/blockers list`
-Print summary of all recorded blockers.
+### Context
+{{context}}
 
-### `/blockers resolve <id> <option>`
-Resolve blocker #id by selecting option (future feature).
+{{optionsSection}}
+{{chosenSection}}
 
-## Troubleshooting
+### Additional Info
+Blocks Progress: {{blocksProgress}}
 
-### Plugin not loading
-- Check `opencode.json` syntax
-- Verify plugin name: `"opencode-blocker-diverter"` (exact match)
-- Check logs: `~/.local/state/opencode/logs/`
-
-### Blockers not being caught
-- Confirm `enabled: true` in config
-- Check if question matches hardBlockerRules patterns
-- Enable debug logging in config
-
-### Agent still stopping
-- Check stop hook implementation
-- Review session.idle handler logs
-- Ensure compaction hook preserves state
-
-## Development
-
-### Setup
-```bash
-git clone https://github.com/Nikro/opencode-blocker-diverter.git
-cd opencode-blocker-diverter
-bun install
+---
 ```
 
-### Testing
-```bash
-bun test              # Run all tests
-bun test --coverage   # With coverage report
-bun test --watch      # Watch mode
-```
+**Available variables:**
+- `{{id}}` — Unique blocker identifier
+- `{{timestamp}}` — ISO 8601 timestamp
+- `{{sessionId}}` — OpenCode session ID
+- `{{category}}` — Blocker category (architecture, security, etc.)
+- `{{question}}` — The blocking question
+- `{{context}}` — Structured context (task, action, files, progress)
+- `{{blocksProgress}}` — "Yes" or "No"
+- `{{optionsSection}}` — Auto-generated options list (if present)
+- `{{chosenSection}}` — Auto-generated chosen option + reasoning (if present)
 
-### Code Quality
-```bash
-bun run lint          # ESLint
-bun run typecheck     # TypeScript
-bun run format        # Prettier
-```
+If no custom template exists, the plugin uses a sensible default format.
 
-### Project Structure
-```
-opencode-blocker-diverter/
-├── index.ts              # Root entry point (export default createPlugin)
-├── package.json          # NPM package manifest
-├── tsconfig.json         # TypeScript configuration
-├── src/
-│   ├── core/
-│   │   └── plugin.ts     # Plugin factory (hook registration)
-│   ├── types.ts          # Interfaces: Blocker, Config, SessionState
-│   ├── config.ts         # Config loading, Zod schemas, validation
-│   ├── state.ts          # Session state Map management
-│   ├── utils/
-│   │   ├── logging.ts    # Structured logging helpers
-│   │   ├── dedupe.ts     # Cooldown hash, dedupe logic
-│   │   └── templates.ts  # Prompt template generation
-│   ├── hooks/
-│   │   ├── session.ts
-│   │   ├── tool-intercept.ts
-│   │   └── system-prompt.ts
-│   └── commands/
-│       └── blockers-cmd.ts
-├── tests/                # All tests with fixed imports
-│   ├── config.test.ts
-│   ├── state.test.ts
-│   └── utils/
-│       ├── logging.test.ts
-│       ├── dedupe.test.ts
-│       └── templates.test.ts
-└── dist/                 # Build output (gitignored)
-    ├── index.js         # Bundled plugin
-    ├── index.d.ts       # TypeScript declarations
-    └── src/             # Type definition modules
-```
-
-## Development Workflow (Spec-Kit)
-
-This project uses **spec-kit** for structured development. Here's the correct workflow:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Spec-Kit Development Workflow                              │
-│                                                              │
-│  0. /speckit.constitution → Project principles (once)       │
-│  1. /speckit.specify      → What & Why (requirements)       │
-│  2. /speckit.clarify      → Resolve ambiguities (before!)   │
-│  3. /speckit.plan         → How (tech stack + architecture) │
-│  4. /speckit.tasks        → Break down into actionable work │
-│  5. /speckit.implement    → Execute with TDD                │
-│  └─────────────────────────────────────────────────────────┘
-│                          ↓ Iterate ↑                        │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### When to Use Each Command
-
-| Command | When | Output |
-|---------|------|--------|
-| `/speckit.constitution` | Project start (once) | Governing principles and development guidelines |
-| `/speckit.specify` | New feature needed | User stories, requirements, success criteria |
-| `/speckit.clarify` | Before planning (recommended!) | Resolved ambiguities, clarified edge cases |
-| `/speckit.plan` | After spec is clear | Tech stack decisions, architecture, module structure |
-| `/speckit.tasks` | Plan approved | Ordered task breakdown with dependencies |
-| `/speckit.implement` | Ready to code | Working implementation with tests |
-
-**Pro Tip:** Always run `/speckit.clarify` before `/speckit.plan` to prevent rework!
-
-📚 **Learn More:**
-- [Spec-Kit Documentation](https://github.com/github/spec-kit)
-- [Development Best Practices](.specify/memory/constitution.md)
-- [Agent Guidelines](AGENTS.md)
+</details>
 
 ## Contributing
 
-Contributions welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [.specify/memory/constitution.md](.specify/memory/constitution.md) for development standards.
+Contributions welcome! Please read [.specify/memory/constitution.md](.specify/memory/constitution.md) for development standards.
 
-### Key Principles
-- **Modular architecture** — target 300-400 lines per module, 500-line hard limit
+<details>
+<summary><strong>Local Development Setup</strong></summary>
+
+```bash
+# Clone and setup
+git clone https://github.com/Nikro/opencode-blocker-diverter.git
+cd opencode-blocker-diverter
+bun install
+
+# Run tests
+bun test              # Run all tests
+bun test --coverage   # With coverage report
+bun test --watch      # Watch mode
+
+# Code quality
+bun run typecheck     # TypeScript check
+```
+
+### Key Development Principles
+- **Modular architecture** — 300-400 lines per module, 500-line hard limit
 - **Test-driven development** — tests before implementation
 - **TypeScript strict mode** — no `any` types
 - **Performance first** — async operations, caching, debouncing
 - **Security conscious** — validate inputs, sanitize outputs
+
+See [AGENTS.md](AGENTS.md) for full development guide.
+
+</details>
 
 ## License
 

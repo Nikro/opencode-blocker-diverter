@@ -150,6 +150,10 @@ export function createSessionHooks(ctx: Parameters<Plugin>[0]) {
             await handleSessionError(loggingClient, sessionId as string, properties?.error)
             break
 
+          case 'message.updated':
+            await handleMessageUpdated(loggingClient, properties)
+            break
+
           default:
             // Silently ignore unknown event types
             await logDebug(loggingClient, `Unknown session event type: ${type}`, { event })
@@ -242,29 +246,56 @@ Latest: ${JSON.stringify(recentBlockers, null, 2)}
         const { sessionID } = input
         const { message, parts } = output
 
-        // Only capture assistant messages (ignore user messages)
-        if (message.role !== 'assistant') {
+        // Handle user messages: auto-disable if blocker diverter is active
+        if (message.role === 'user') {
+          const state = getState(sessionID)
+          if (state.divertBlockers) {
+            // User is taking manual control - disable autonomous mode
+            updateState(sessionID, s => {
+              s.divertBlockers = false
+              s.repromptCount = 0
+              s.lastRepromptTime = 0
+            })
+
+            await logInfo(loggingClient, 'Auto-disabled blocker diverter (user message detected)', {
+              sessionID
+            })
+
+            // Show toast notification
+            try {
+              const promptClient = ctx.client as any
+              if (promptClient?.tui?.showToast) {
+                await promptClient.tui.showToast({ 
+                  body: '🛑 Blocker diverter auto-disabled (user input detected). Use /blockers.on to re-enable.' 
+                })
+              }
+            } catch {
+              // TUI may not be available, ignore
+            }
+          }
           return
         }
 
-        // Extract text content from parts
-        const textContent = parts
-          .filter(part => part.type === 'text' && typeof part.text === 'string')
-          .map(part => part.text)
-          .join('\n')
+        // Handle assistant messages: capture content for completion marker detection
+        if (message.role === 'assistant') {
+          // Extract text content from parts
+          const textContent = parts
+            .filter(part => part.type === 'text' && typeof part.text === 'string')
+            .map(part => part.text)
+            .join('\n')
 
-        // Update state with last message content and clear awaiting flag
-        if (textContent) {
-          updateState(sessionID, s => {
-            s.lastMessageContent = textContent
-            s.awaitingAgentResponse = false // Agent responded, clear cancellation detection
-          })
+          // Update state with last message content
+          if (textContent) {
+            updateState(sessionID, s => {
+              s.lastMessageContent = textContent
+            })
 
-          await logDebug(loggingClient, 'Captured assistant message', {
-            sessionID,
-            messageLength: textContent.length,
-            partCount: parts.length
-          })
+            await logDebug(loggingClient, 'Captured assistant message', {
+              sessionID,
+              messageLength: textContent.length,
+              partCount: parts.length
+            })
+          }
         }
       } catch (error) {
         // Don't break on message capture errors
@@ -275,6 +306,63 @@ Latest: ${JSON.stringify(recentBlockers, null, 2)}
           { input }
         )
       }
+    }
+  }
+}
+
+/**
+ * Handle message.updated event
+ * 
+ * Tracks whether the last assistant message was aborted by the user.
+ * This is the KEY differentiator for cancellation detection:
+ * - error.name === "MessageAbortedError" → user hit Esc+Esc → SET abort flag
+ * - Any other assistant message update → CLEAR abort flag (new message started)
+ * 
+ * Critical fix: We MUST clear the abort flag on ANY assistant message update
+ * (not just on finish), because a new message means the previous abort is no longer relevant.
+ * Without this, if user aborts message A, then message B starts streaming,
+ * the abort flag would stay true until message B finishes, causing false positive detection.
+ */
+async function handleMessageUpdated(
+  client: LoggingClient,
+  properties: Record<string, unknown>
+): Promise<void> {
+  const info = properties?.info as { 
+    role?: string
+    sessionID?: string
+    error?: { name?: string }
+    finish?: string
+    time?: { completed?: number }
+  } | undefined
+
+  if (!info || info.role !== 'assistant') return
+  
+  const sessionId = info.sessionID
+  if (!sessionId) return
+
+  // Check for abort error FIRST (highest priority)
+  if (info.error && info.error.name === 'MessageAbortedError') {
+    updateState(sessionId, s => {
+      s.lastAssistantAborted = true
+    })
+    await logInfo(client, 'User abort detected via MessageAbortedError - will auto-disable on next idle', { 
+      sessionId,
+      errorName: info.error.name
+    })
+  } else {
+    // Any other assistant message update (streaming, finish, metadata) → clear abort flag
+    // This ensures abort flag is scoped to the specific aborted message only
+    const state = getState(sessionId)
+    const wasAborted = state.lastAssistantAborted
+    
+    if (wasAborted) {
+      updateState(sessionId, s => {
+        s.lastAssistantAborted = false
+      })
+      await logDebug(client, 'Cleared abort flag (new assistant message detected)', { 
+        sessionId,
+        finish: info.finish || 'streaming'
+      })
     }
   }
 }
@@ -291,20 +379,40 @@ async function handleSessionCreated(
   ctx: Parameters<Plugin>[0]
 ): Promise<void> {
   // Initialize state (lazy initialization via getState)
-  const state = getState(sessionId)
+  const stateBefore = getState(sessionId)
+  await logDebug(client, 'State before config application', {
+    sessionId,
+    divertBlockersInitial: stateBefore.divertBlockers
+  })
   
   // Load config to get defaultDivertBlockers setting
   const config = await loadConfig(ctx.project.worktree)
+  await logDebug(client, 'Config loaded', {
+    sessionId,
+    defaultDivertBlockers: config.defaultDivertBlockers,
+    worktree: ctx.project.worktree
+  })
   
   // Apply config default to session state
   updateState(sessionId, s => {
     s.divertBlockers = config.defaultDivertBlockers
   })
-
+  
+  const stateAfter = getState(sessionId)
   await logInfo(client, 'Session created', { 
     sessionId,
-    divertBlockers: config.defaultDivertBlockers
+    divertBlockersBefore: stateBefore.divertBlockers,
+    divertBlockersAfter: stateAfter.divertBlockers,
+    configDefault: config.defaultDivertBlockers
   })
+  
+  // Warn if auto-enabled via config to prevent confusion
+  if (stateAfter.divertBlockers) {
+    await logWarn(client, '⚠️  Blocker diverter auto-enabled via config. Use /blockers.off or /blockers.stop to disable.', {
+      sessionId,
+      configSource: ctx.project.worktree
+    })
+  }
 }
 
 /**
@@ -350,7 +458,8 @@ async function handleSessionDeleted(
 async function checkCompletionMarker(
   state: SessionState,
   config: PluginConfig,
-  client: LoggingClient
+  client: LoggingClient,
+  sessionId: string
 ): Promise<boolean> {
   const lastMessage = state.lastMessageContent || ''
   
@@ -364,10 +473,12 @@ async function checkCompletionMarker(
   const markerFound = lastMessage.includes(marker)
   
   if (markerFound) {
-    await logDebug(client, 'Completion marker detected', {
+    await logInfo(client, 'Completion marker detected - will auto-disable blocker diverter', {
+      sessionId,
       marker,
       messageLength: lastMessage.length,
-      markerPosition: lastMessage.indexOf(marker)
+      markerPosition: lastMessage.indexOf(marker),
+      messagePreview: lastMessage.slice(Math.max(0, lastMessage.indexOf(marker) - 50), lastMessage.indexOf(marker) + marker.length + 50)
     })
   }
   
@@ -405,20 +516,34 @@ async function handleSessionIdle(
     divertBlockers: state.divertBlockers,
     blockersLogged: state.blockers.length,
     repromptCount: state.repromptCount,
-    awaitingResponse: state.awaitingAgentResponse
+    lastAssistantAborted: state.lastAssistantAborted
   })
 
-  // User cancellation detection - if we're still awaiting a response from a previous
-  // prompt injection and we hit idle again, the user likely cancelled (Esc+Esc)
-  if (state.awaitingAgentResponse) {
-    await logInfo(client, 'User cancellation detected - stopping reprompts', {
+  // User cancellation detection via MessageAbortedError
+  // If the last assistant message was aborted by the user (Esc+Esc),
+  // disable blocker diverter and stop reprompting
+  if (state.lastAssistantAborted) {
+    await logInfo(client, 'User cancellation detected (MessageAbortedError) - disabling blocker diverter', {
       sessionId,
       repromptCount: state.repromptCount
     })
-    // Clear the flag to allow future manual resumption
     updateState(sessionId, s => {
-      s.awaitingAgentResponse = false
+      s.lastAssistantAborted = false  // Reset flag
+      s.divertBlockers = false        // Disable to prevent accidental re-triggering
+      s.repromptCount = 0             // Reset reprompt count
     })
+    
+    // Show toast notification to inform user
+    try {
+      const promptClient = ctx.client as any
+      if (promptClient?.tui?.showToast) {
+        await promptClient.tui.showToast({ 
+          body: '🛑 Blocker diverter disabled (user interrupted). Use /blockers.on to re-enable.' 
+        })
+      }
+    } catch {
+      // TUI may not be available, ignore
+    }
     return
   }
 
@@ -438,13 +563,30 @@ async function handleSessionIdle(
 
   // Check for completion marker in last agent response
   // Store last message content in state for completion detection
-  const completionDetected = await checkCompletionMarker(state, config, client)
+  const completionDetected = await checkCompletionMarker(state, config, client, sessionId)
   if (completionDetected) {
     await logInfo(client, 'Completion marker detected - stopping autonomous session', { 
       sessionId,
       marker: config.completionMarker,
       repromptCount: state.repromptCount
     })
+    // Disable blocker diverter to prevent further reprompts on subsequent idles
+    updateState(sessionId, s => {
+      s.divertBlockers = false
+      s.repromptCount = 0
+      s.lastRepromptTime = 0
+    })
+    // Show toast notification
+    try {
+      const promptClient = ctx.client as any
+      if (promptClient?.tui?.showToast) {
+        await promptClient.tui.showToast({ 
+          body: '✅ Autonomous session complete. Blocker diverter disabled. Use /blockers.on to re-enable.' 
+        })
+      }
+    } catch {
+      // TUI may not be available, ignore
+    }
     return
   }
 
@@ -547,11 +689,10 @@ async function injectContinuePrompt(
       'Continue prompt injection'
     )
 
-    // Update state - set awaiting flag for cancellation detection
+    // Update state
     updateState(sessionId, s => {
       s.repromptCount++
       s.lastRepromptTime = Date.now()
-      s.awaitingAgentResponse = true // Track that we injected a prompt
     })
 
     // Get updated state after mutation for accurate logging

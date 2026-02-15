@@ -208,13 +208,12 @@ export interface SessionState {
   lastMessageContent: string
 
   /**
-   * Flag tracking if we injected a continuation prompt and are awaiting response
-   * Set to true when we inject a continue prompt via session.idle
-   * Cleared when we receive an assistant message via chat.message hook
-   * Used to detect user cancellation: if session.idle fires again while this is true,
-   * the user likely cancelled (Esc+Esc), so we should stop reprompting
+   * Tracks whether the last assistant message was aborted by the user (Esc+Esc).
+   * Set to true when a `message.updated` event arrives with error.name === "MessageAbortedError".
+   * Set to false when a `message.updated` event arrives with a normal finish (no abort error).
+   * Used by session.idle handler to decide whether to reprompt or stop.
    */
-  awaitingAgentResponse: boolean
+  lastAssistantAborted: boolean
 }
 
 /**

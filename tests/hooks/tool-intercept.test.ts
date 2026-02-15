@@ -32,7 +32,7 @@ describe('handleToolExecuteBefore', () => {
     defaultDivertBlockers: true,
     blockersFile: '/test/project/blockers.md',
     maxBlockersPerRun: 50,
-    cooldownMs: 30000,
+    cooldownMs: 5000, // Changed from 30s to 5s
     maxReprompts: 5,
     repromptWindowMs: 300000,
     completionMarker: 'BLOCKER_DIVERTER_DONE!',

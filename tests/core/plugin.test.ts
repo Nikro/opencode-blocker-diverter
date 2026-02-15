@@ -308,10 +308,7 @@ describe('createPlugin', () => {
       } as any, output)
       
       // Hook should fire but not intercept (let AI template handle it)
-      const hookDebugCalls = logSpy.mock.calls.filter((call: any) =>
-        call[0]?.message?.includes('hook fired')
-      )
-      expect(hookDebugCalls.length).toBeGreaterThan(0)
+      // No interception means no state change or toast
       
       // List command is NOT intercepted, so output.parts should remain empty
       expect(output.parts).toHaveLength(0)

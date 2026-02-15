@@ -5,6 +5,7 @@
  * - Append blocker entries (markdown format)
  * - Count existing blockers (for rotation logic)
  * - Rotate file when max count exceeded
+ * - Load custom blocker templates from .opencode/BLOCKERS.template.md
  * 
  * All operations include path validation to prevent directory traversal attacks.
  * Graceful error handling ensures file I/O failures don't crash the plugin.
@@ -12,9 +13,128 @@
  * @module utils/blockers-file
  */
 
-import { resolve, dirname, basename, relative, isAbsolute, sep, normalize } from 'node:path'
-import { appendFile, rename, mkdir } from 'node:fs/promises'
+import { resolve, dirname, basename, relative, isAbsolute, sep, normalize, join } from 'node:path'
+import { appendFile, rename, mkdir, readFile } from 'node:fs/promises'
 import type { Blocker } from '../types'
+
+/**
+ * Default blocker template (used when custom template not found)
+ * Uses simple {{variable}} syntax for replacement
+ */
+const DEFAULT_TEMPLATE = `
+## Blocker #{{id}}
+**Timestamp:** {{timestamp}}  
+**Session:** {{sessionId}}  
+**Category:** {{category}}
+
+### Question
+{{question}}
+
+### Context
+{{context}}
+
+{{optionsSection}}
+{{chosenSection}}
+
+### Additional Info
+Blocks Progress: {{blocksProgress}}
+
+---
+`
+
+/**
+ * Cache for loaded template to avoid repeated file reads
+ * Key: projectDir, Value: template string
+ */
+let templateCache: Map<string, string> = new Map()
+
+/**
+ * Clears the template cache (for testing)
+ */
+export function clearTemplateCache(): void {
+  templateCache.clear()
+}
+
+/**
+ * Loads blocker template from .opencode/BLOCKERS.template.md
+ * 
+ * Attempts to read custom template from project's .opencode directory.
+ * Falls back to DEFAULT_TEMPLATE if file not found or read error.
+ * Results are cached per projectDir for performance.
+ * 
+ * @param projectDir - Project root directory
+ * @returns Promise<string> - Template content with {{variable}} placeholders
+ */
+async function loadTemplate(projectDir: string): Promise<string> {
+  // Check cache first
+  const cached = templateCache.get(projectDir)
+  if (cached !== undefined) {
+    return cached
+  }
+
+  // Try to load custom template
+  try {
+    const templatePath = join(projectDir, '.opencode', 'BLOCKERS.template.md')
+    const content = await readFile(templatePath, 'utf-8')
+    
+    // Cache and return
+    templateCache.set(projectDir, content)
+    return content
+  } catch (error) {
+    // File not found or read error - use default
+    // Cache the default for this project
+    templateCache.set(projectDir, DEFAULT_TEMPLATE)
+    return DEFAULT_TEMPLATE
+  }
+}
+
+/**
+ * Renders template by replacing {{variable}} placeholders
+ * 
+ * Supports simple variable replacement and conditional sections:
+ * - {{variable}} - replaced with sanitized value
+ * - {{optionsSection}} - replaced with formatted options list or empty string
+ * - {{chosenSection}} - replaced with chosen option section or empty string
+ * 
+ * @param template - Template string with placeholders
+ * @param blocker - Blocker object with data
+ * @returns Rendered markdown string
+ */
+function renderTemplate(template: string, blocker: Blocker): string {
+  let rendered = template
+
+  // Replace simple variables
+  rendered = rendered.replace(/\{\{id\}\}/g, blocker.id)
+  rendered = rendered.replace(/\{\{timestamp\}\}/g, blocker.timestamp)
+  rendered = rendered.replace(/\{\{sessionId\}\}/g, blocker.sessionId)
+  rendered = rendered.replace(/\{\{category\}\}/g, blocker.category)
+  rendered = rendered.replace(/\{\{question\}\}/g, sanitizeMarkdown(blocker.question))
+  rendered = rendered.replace(/\{\{context\}\}/g, sanitizeMarkdown(blocker.context || 'No additional context'))
+  rendered = rendered.replace(/\{\{blocksProgress\}\}/g, blocker.blocksProgress ? 'Yes' : 'No')
+
+  // Handle optional options section
+  let optionsSection = ''
+  if (blocker.options && blocker.options.length > 0) {
+    optionsSection = '### Options Considered\n'
+    blocker.options.forEach((opt, idx) => {
+      optionsSection += `${idx + 1}. ${sanitizeMarkdown(opt)}\n`
+    })
+    optionsSection += '\n'
+  }
+  rendered = rendered.replace(/\{\{optionsSection\}\}/g, optionsSection)
+
+  // Handle optional chosen option section
+  let chosenSection = ''
+  if (blocker.chosenOption) {
+    chosenSection = `### Chosen Option\n${sanitizeMarkdown(blocker.chosenOption)}\n\n`
+    if (blocker.chosenReasoning) {
+      chosenSection += `### Reasoning\n${sanitizeMarkdown(blocker.chosenReasoning)}\n\n`
+    }
+  }
+  rendered = rendered.replace(/\{\{chosenSection\}\}/g, chosenSection)
+
+  return rendered
+}
 
 /**
  * Validates file path is within project directory
@@ -60,46 +180,24 @@ function sanitizeMarkdown(text: string): string {
 }
 
 /**
- * Formats blocker object as markdown entry
+ * Formats blocker object as markdown entry using template
  * 
- * Generates markdown-formatted blocker entry with all fields.
- * Format matches spec: ## Blocker #ID with metadata and sections.
+ * Loads template from .opencode/BLOCKERS.template.md (or uses default).
+ * Renders template by replacing {{variable}} placeholders with blocker data.
  * Sanitizes all user-provided content to prevent markdown injection.
  * 
  * @param blocker - Blocker object to serialize
- * @returns Markdown string with trailing newline
+ * @param projectDir - Project root directory (for template loading)
+ * @returns Promise<string> - Markdown string with trailing newline
  */
-function formatBlockerEntry(blocker: Blocker): string {
-  let entry = `
-## Blocker #${blocker.id}
-**Time:** ${blocker.timestamp}
-**Session:** ${blocker.sessionId}
-**Category:** ${blocker.category}
-**Blocks Progress:** ${blocker.blocksProgress ? 'Yes' : 'No'}
+async function formatBlockerEntry(blocker: Blocker, projectDir: string): Promise<string> {
+  // Load template (cached after first load)
+  const template = await loadTemplate(projectDir)
+  
+  // Render template with blocker data
+  let entry = renderTemplate(template, blocker)
 
-### Question
-${sanitizeMarkdown(blocker.question)}
-
-### Context
-${sanitizeMarkdown(blocker.context || 'No additional context')}
-`
-
-  // Add optional fields if present
-  if (blocker.options && blocker.options.length > 0) {
-    entry += `\n### Options Considered\n`
-    blocker.options.forEach((opt, idx) => {
-      entry += `${idx + 1}. ${sanitizeMarkdown(opt)}\n`
-    })
-  }
-
-  if (blocker.chosenOption) {
-    entry += `\n### Chosen Option\n${sanitizeMarkdown(blocker.chosenOption)}\n`
-  }
-
-  if (blocker.chosenReasoning) {
-    entry += `\n### Reasoning\n${sanitizeMarkdown(blocker.chosenReasoning)}\n`
-  }
-
+  // Add status fields if present (not in template - legacy support)
   if (blocker.clarified) {
     entry += `\n**Status:** ${blocker.clarified}\n`
   }
@@ -108,7 +206,10 @@ ${sanitizeMarkdown(blocker.context || 'No additional context')}
     entry += `\n### User Clarification\n${sanitizeMarkdown(blocker.clarification)}\n`
   }
 
-  entry += `\n---\n`
+  // Ensure trailing separator
+  if (!entry.endsWith('\n---\n')) {
+    entry += '\n---\n'
+  }
 
   return entry
 }
@@ -118,10 +219,11 @@ ${sanitizeMarkdown(blocker.context || 'No additional context')}
  * 
  * Creates file if it doesn't exist. Validates path security.
  * Uses atomic append operation (fs.appendFile).
+ * Loads and renders custom template from .opencode/BLOCKERS.template.md.
  * 
  * @param filePath - Relative or absolute path to blockers.md
  * @param blocker - Blocker object to serialize
- * @param projectDir - Project root directory (for path validation)
+ * @param projectDir - Project root directory (for path validation and template loading)
  * @returns Promise<boolean> - true if successful, false on error
  * @throws Error if path is invalid/traversal attempt
  * 
@@ -146,8 +248,8 @@ export async function appendBlocker(
     // Validate path security
     const resolvedPath = validatePath(filePath, projectDir)
     
-    // Format blocker as markdown
-    const entry = formatBlockerEntry(blocker)
+    // Format blocker as markdown using template
+    const entry = await formatBlockerEntry(blocker, projectDir)
     
     // Ensure parent directory exists
     const dir = dirname(resolvedPath)

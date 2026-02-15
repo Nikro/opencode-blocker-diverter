@@ -236,15 +236,39 @@ You are operating in AUTONOMOUS MODE with the Blocker Diverter plugin active.
 
 1. **HARD BLOCKERS** (Architecture, Security, Destructive, Deployment):
    - DO NOT ask the user
-   - Log to blockers.md with full context
+   - Log to blockers.md with STRUCTURED CONTEXT (see below)
    - Continue with independent parallel tasks
    - Examples: "Which framework?", "Should I delete X?", "Deploy where?"
 
 2. **SOFT QUESTIONS** (Naming, Formatting, Minor Choices):
    - Make reasonable default choices
    - Follow project conventions
-   - Log your choice and reasoning
+   - Log your choice and reasoning with STRUCTURED CONTEXT
    - Examples: "Name this function?", "Format as JSON or YAML?"
+
+## Blocker Context Requirements
+
+When logging blockers, ALWAYS include structured context:
+
+**Required Elements**:
+- **Task Reference**: Task ID, todo item number, or brief task description
+- **What You Were Doing**: Specific action/operation being attempted
+- **Where You Got Stuck**: Exact file path(s), line numbers, or command
+- **Progress Made**: What was completed before hitting the blocker
+
+**Good Context Example**:
+\`\`\`
+Task: #3 "Implement user authentication"
+Action: Setting up JWT token validation middleware
+Files: src/middleware/auth.ts:45, src/config/jwt.ts
+Progress: Created auth middleware skeleton, installed jsonwebtoken package
+Blocker: Need to decide between RS256 (asymmetric) vs HS256 (symmetric) signing
+\`\`\`
+
+**Bad Context Example** (too vague):
+\`\`\`
+Working on auth stuff
+\`\`\`
 
 ## Decision Framework
 
@@ -317,7 +341,17 @@ export function getBlockerToolDefinition(): string {
   return `<tools>
 <tool>
   <name>blocker</name>
-  <description>Log a hard blocker question that needs human input to blockers.md and continue with independent tasks. Use this when you hit architecture decisions, security choices, destructive operations, or deployment configurations that block progress. DO NOT use for soft questions (naming, formatting) - make reasonable defaults for those.</description>
+  <description>Log a hard blocker question that needs human input to blockers.md and continue with independent tasks. Use this when you hit architecture decisions, security choices, destructive operations, or deployment configurations that block progress. DO NOT use for soft questions (naming, formatting) - make reasonable defaults for those.
+
+IMPORTANT: Provide STRUCTURED CONTEXT in the 'context' field:
+- Task Reference: Task ID, todo item, or task description
+- What You Were Doing: Specific action/operation attempted
+- Where You Got Stuck: File paths (e.g., src/auth.ts:45), commands, or function names
+- Progress Made: What was completed before hitting the blocker
+
+Example context:
+"Task: #3 'Implement JWT auth' | Action: Setting up token validation | Files: src/middleware/auth.ts:45, src/config/jwt.ts | Progress: Created middleware skeleton, installed jsonwebtoken | Blocker: Need to decide RS256 vs HS256 signing algorithm"
+</description>
   <input_schema>
     <json_schema>
       {

@@ -156,6 +156,8 @@ describe('E2E: Command Flow', () => {
 
     mockContext.client.app.log.mockClear()
 
+    const output = { parts: [] }
+
     // Execute command (note: /blockers.list is NOT intercepted by hook, so no logging happens)
     await pluginHooks['command.execute.before'](
       {
@@ -163,13 +165,11 @@ describe('E2E: Command Flow', () => {
         arguments: '',
         sessionID: TEST_SESSION_ID,
       },
-      { parts: [] }
+      output
     )
 
-    // Hook should fire but not log list details (AI template handles it)
-    const debugLogCalls = mockContext.client.app.log.mock.calls.filter((call: any[]) =>
-      call[0]?.message?.includes('hook fired')
-    )
-    expect(debugLogCalls.length).toBeGreaterThan(0)
+    // Hook should fire but not intercept /blockers.list (AI template handles it)
+    // Output parts should remain empty since no command was matched
+    expect(output.parts).toHaveLength(0)
   })
 })

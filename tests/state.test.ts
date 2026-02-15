@@ -35,7 +35,7 @@ describe('state.ts - Session State Management', () => {
       expect(state.repromptCount).toBe(0)
       expect(state.recentResponseHashes).toEqual([])
       expect(state.lastRepromptTime).toBe(0)
-      expect(state.awaitingAgentResponse).toBe(false)
+      expect(state.lastAssistantAborted).toBe(false)
     })
 
     it('should return same state object on subsequent calls for same session', () => {

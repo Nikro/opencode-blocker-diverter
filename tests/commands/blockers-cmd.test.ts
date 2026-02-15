@@ -9,6 +9,7 @@ import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
 import { 
   handleOnCommand,
   handleOffCommand,
+  handleStopCommand,
   handleStatusCommand,
   handleListCommand 
 } from '../../src/commands/blockers-cmd'
@@ -25,7 +26,7 @@ describe('Blocker Command Handlers', () => {
     defaultDivertBlockers: true,
     blockersFile: './blockers.md',
     maxBlockersPerRun: 50,
-    cooldownMs: 30000,
+    cooldownMs: 5000, // Changed from 30s to 5s
     maxReprompts: 5,
     repromptWindowMs: 300000,
     completionMarker: 'BLOCKER_DIVERTER_DONE!',
@@ -190,6 +191,25 @@ describe('Blocker Command Handlers', () => {
     })
   })
 
+  describe('handleStopCommand', () => {
+    it('should disable diversion and clear reprompt state', async () => {
+      const state = getState(testSessionId)
+      state.divertBlockers = true
+      state.lastAssistantAborted = true
+      state.repromptCount = 3
+      state.lastRepromptTime = Date.now()
+
+      const result = await handleStopCommand(state, mockClient)
+
+      expect(state.divertBlockers).toBe(false)
+      expect(state.lastAssistantAborted).toBe(false)
+      expect(state.repromptCount).toBe(0)
+      expect(state.lastRepromptTime).toBe(0)
+      expect(result.handled).toBe(true)
+      expect(result.toast?.variant).toBe('error')
+    })
+  })
+
   describe('handleListCommand', () => {
     it('should list all blockers with category and truncated question', async () => {
       const state = getState(testSessionId)
@@ -322,4 +342,3 @@ describe('Blocker Command Handlers', () => {
     })
   })
 })
-
