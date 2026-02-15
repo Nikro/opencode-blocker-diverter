@@ -8,4 +8,8 @@ The Blocker Diverter plugin has been **disabled** for this session. You are back
 - Ask the user for clarification when you encounter blocking questions.
 - Do NOT auto-resolve decisions — wait for user input on ambiguous choices.
 
+{{#if $ARGUMENTS}}
+**User note:** $ARGUMENTS
+{{/if}}
+
 Respond with: "Done."

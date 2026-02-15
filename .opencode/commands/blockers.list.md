@@ -14,6 +14,10 @@ Each blocker includes:
 - **Question**: The original question or permission request
 - **Context**: Surrounding context at the time
 
+{{#if $ARGUMENTS}}
+**User note:** $ARGUMENTS
+{{/if}}
+
 {{#each blockers}}
 ## Blocker {{@index}}
 - **ID**: {{id}}
