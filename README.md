@@ -240,6 +240,12 @@ bun run typecheck     # TypeScript check
 
 See [AGENTS.md](AGENTS.md) for full development guide.
 
+### Publishing
+
+This package uses **Trusted Publishing** (OIDC) via GitHub Actions for secure automated releases.
+
+See [PUBLISHING.md](PUBLISHING.md) for complete publishing workflow and security setup.
+
 </details>
 
 ## License
