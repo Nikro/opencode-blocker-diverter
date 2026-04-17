@@ -10,5 +10,15 @@
  */
 
 import { createPlugin } from "./src/core/plugin";
+import type { PluginModule } from "@opencode-ai/plugin";
 
-export default createPlugin;
+/**
+ * Export as PluginModule format required by @opencode-ai/plugin >= 1.3.x
+ * Older versions accepted a raw Plugin function as default export.
+ * Newer versions require { server: Plugin } (PluginModule) for server-side plugins.
+ */
+const plugin: PluginModule = {
+  server: createPlugin,
+};
+
+export default plugin;
