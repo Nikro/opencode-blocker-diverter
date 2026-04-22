@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import {
   writeIfMissing,
   copyIfMissing,
+  copyAlways,
   isConsumingProject,
   generateDefaultConfig,
   patchOpencodeConfig,
@@ -87,6 +88,45 @@ describe("copyIfMissing", () => {
     const result = copyIfMissing(src, dest);
     expect(result).toBe(false);
     expect(readFileSync(dest, "utf8")).toBe("original");
+  });
+});
+
+// ---- copyAlways ----
+
+describe("copyAlways", () => {
+  it("copies a file when destination is absent and returns true", () => {
+    const src = join(tmpRoot, "src.txt");
+    const dest = join(tmpRoot, "dest-dir", "dest.txt");
+    writeFileSync(src, "source content");
+    const result = copyAlways(src, dest);
+    expect(result).toBe(true);
+    expect(readFileSync(dest, "utf8")).toBe("source content");
+  });
+
+  it("overwrites an existing destination and returns true", () => {
+    const src = join(tmpRoot, "src.txt");
+    const dest = join(tmpRoot, "dest.txt");
+    writeFileSync(src, "new content");
+    writeFileSync(dest, "old content");
+    const result = copyAlways(src, dest);
+    expect(result).toBe(true);
+    expect(readFileSync(dest, "utf8")).toBe("new content");
+  });
+
+  it("returns false when source does not exist", () => {
+    const src = join(tmpRoot, "nonexistent.txt");
+    const dest = join(tmpRoot, "dest.txt");
+    const result = copyAlways(src, dest);
+    expect(result).toBe(false);
+    expect(existsSync(dest)).toBe(false);
+  });
+
+  it("creates intermediate directories", () => {
+    const src = join(tmpRoot, "src.txt");
+    const dest = join(tmpRoot, "a", "b", "c", "dest.txt");
+    writeFileSync(src, "deep");
+    copyAlways(src, dest);
+    expect(existsSync(dest)).toBe(true);
   });
 });
 
@@ -266,6 +306,36 @@ describe("patchOpencodeConfig", () => {
     // json file must remain untouched.
     expect(JSON.parse(readFileSync(jsonPath, "utf8"))).toEqual({ from: "json" });
   });
+
+  it("should not add path spec when versioned npm spec exists (opencode-blocker-diverter@0.2.0)", () => {
+    const jsoncPath = join(tmpRoot, "opencode.jsonc");
+    writeFileSync(
+      jsoncPath,
+      JSON.stringify({ plugin: ["opencode-blocker-diverter@0.2.0"] }, null, 2),
+    );
+    const before = readFileSync(jsoncPath, "utf8");
+    const { action } = patchOpencodeConfig(tmpRoot);
+    expect(action).toBe("skipped");
+    // File must not be touched.
+    expect(readFileSync(jsoncPath, "utf8")).toBe(before);
+    // The versioned spec must still be there; no second entry added.
+    const parsed = JSON.parse(readFileSync(jsoncPath, "utf8")) as Record<string, unknown>;
+    expect(parsed.plugin as string[]).toEqual(["opencode-blocker-diverter@0.2.0"]);
+  });
+
+  it("should not add path spec when tagged npm spec exists (opencode-blocker-diverter@latest)", () => {
+    const jsoncPath = join(tmpRoot, "opencode.jsonc");
+    writeFileSync(
+      jsoncPath,
+      JSON.stringify({ plugin: ["opencode-blocker-diverter@latest"] }, null, 2),
+    );
+    const before = readFileSync(jsoncPath, "utf8");
+    const { action } = patchOpencodeConfig(tmpRoot);
+    expect(action).toBe("skipped");
+    expect(readFileSync(jsoncPath, "utf8")).toBe(before);
+    const parsed = JSON.parse(readFileSync(jsoncPath, "utf8")) as Record<string, unknown>;
+    expect(parsed.plugin as string[]).toEqual(["opencode-blocker-diverter@latest"]);
+  });
 });
 
 // ---- patchTuiConfig ----
@@ -301,6 +371,30 @@ describe("patchTuiConfig", () => {
     expect(plugins.includes(TUI_PLUGIN_PATH_SPEC)).toBe(true);
     expect(plugins.includes("opencode-blocker-diverter")).toBe(false);
     expect(plugins.includes(PLUGIN_PATH_SPEC)).toBe(false);
+  });
+
+  it("should not add tui spec when versioned npm spec exists (opencode-blocker-diverter@0.2.0)", () => {
+    const tuiPath = join(tmpRoot, ".opencode", "tui.jsonc");
+    mkdirSync(join(tmpRoot, ".opencode"), { recursive: true });
+    writeFileSync(tuiPath, JSON.stringify({ plugin: ["opencode-blocker-diverter@0.2.0"] }, null, 2));
+    const before = readFileSync(tuiPath, "utf8");
+    const { action } = patchTuiConfig(tmpRoot);
+    expect(action).toBe("skipped");
+    expect(readFileSync(tuiPath, "utf8")).toBe(before);
+    const parsed = JSON.parse(readFileSync(tuiPath, "utf8")) as Record<string, unknown>;
+    expect(parsed.plugin as string[]).toEqual(["opencode-blocker-diverter@0.2.0"]);
+  });
+
+  it("should not add tui spec when tagged npm spec exists (opencode-blocker-diverter@latest)", () => {
+    const tuiPath = join(tmpRoot, ".opencode", "tui.jsonc");
+    mkdirSync(join(tmpRoot, ".opencode"), { recursive: true });
+    writeFileSync(tuiPath, JSON.stringify({ plugin: ["opencode-blocker-diverter@latest"] }, null, 2));
+    const before = readFileSync(tuiPath, "utf8");
+    const { action } = patchTuiConfig(tmpRoot);
+    expect(action).toBe("skipped");
+    expect(readFileSync(tuiPath, "utf8")).toBe(before);
+    const parsed = JSON.parse(readFileSync(tuiPath, "utf8")) as Record<string, unknown>;
+    expect(parsed.plugin as string[]).toEqual(["opencode-blocker-diverter@latest"]);
   });
 });
 
@@ -360,16 +454,20 @@ describe("bootstrap", () => {
     expect(existsSync(shimPath)).toBe(false);
   });
 
-  it("is idempotent on second run — opencode.jsonc not rewritten, files skipped", () => {
+  it("is idempotent on second run — opencode.jsonc not rewritten, command files overwritten", () => {
     writeFileSync(join(tmpRoot, "package.json"), JSON.stringify({ name: "my-app" }));
     bootstrap(tmpRoot, pkgDir);
     const jsoncPath = join(tmpRoot, "opencode.jsonc");
     const beforeContent = readFileSync(jsoncPath, "utf8");
 
     const { written, patched } = bootstrap(tmpRoot, pkgDir);
-    expect(written.length).toBe(0);
+    // Config files must not be re-patched.
     expect(patched.length).toBe(0);
+    // opencode.jsonc content must not change.
     expect(readFileSync(jsoncPath, "utf8")).toBe(beforeContent);
+    // Command files are always overwritten (plugin-owned).
+    const commandsWritten = written.filter((f) => f.includes("commands"));
+    expect(commandsWritten.length).toBe(5);
   });
 
   it("does not overwrite a user-edited config", () => {
@@ -406,5 +504,20 @@ describe("bootstrap", () => {
     } finally {
       rmSync(emptyPkg, { recursive: true, force: true });
     }
+  });
+
+  it("should overwrite existing command files on reinstall", () => {
+    writeFileSync(join(tmpRoot, "package.json"), JSON.stringify({ name: "my-app" }));
+    // Pre-seed a stale version of a command file in the dest.
+    const commandsDest = join(tmpRoot, ".opencode", "commands");
+    mkdirSync(commandsDest, { recursive: true });
+    writeFileSync(join(commandsDest, "blockers.on.md"), "# stale old content");
+
+    bootstrap(tmpRoot, pkgDir);
+
+    // File must now contain the new source content, not the stale content.
+    const content = readFileSync(join(commandsDest, "blockers.on.md"), "utf8");
+    expect(content).toBe("# blockers.on.md");
+    expect(content).not.toBe("# stale old content");
   });
 });

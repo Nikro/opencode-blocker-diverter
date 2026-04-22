@@ -50,6 +50,19 @@ export function copyIfMissing(src, dest) {
 }
 
 /**
+ * Copy a file unconditionally, overwriting the destination if it exists.
+ * @param {string} src  - Source absolute path.
+ * @param {string} dest - Destination absolute path.
+ * @returns {boolean} true if the file was written (source existed), false if source missing.
+ */
+export function copyAlways(src, dest) {
+  if (!existsSync(src)) return false;
+  mkdirSync(resolve(dest, ".."), { recursive: true });
+  copyFileSync(src, dest);
+  return true;
+}
+
+/**
  * Check whether a directory is a real consuming project (has package.json,
  * and is not the plugin package itself).
  * @param {string} dir - Directory to check.
@@ -189,6 +202,11 @@ export function patchOpencodeConfig(targetDir) {
         hasPathSpec = true;
         return PLUGIN_PATH_SPEC;
       }
+      // Versioned/tagged npm spec e.g. "opencode-blocker-diverter@0.2.0" — leave untouched.
+      if (entry.startsWith(PLUGIN_NAME)) {
+        hasPathSpec = true;
+        return entry;
+      }
       return entry;
     }
 
@@ -288,6 +306,11 @@ export function patchTuiConfig(targetDir) {
         hasTuiSpec = true;
         migrated = true;
         return TUI_SPEC;
+      }
+      // Versioned/tagged npm spec e.g. "opencode-blocker-diverter@0.2.0" — leave untouched.
+      if (entry.startsWith(PLUGIN_NAME)) {
+        hasTuiSpec = true;
+        return entry;
       }
       return entry;
     }
@@ -389,7 +412,13 @@ export function bootstrap(targetDir, pkgDir) {
       skipped.push(dest);
       continue;
     }
-    record(dest, copyIfMissing(src, dest));
+    // Command files are plugin-owned; always overwrite so updates are applied.
+    const wrote = copyAlways(src, dest);
+    if (wrote) {
+      written.push(dest);
+    } else {
+      skipped.push(dest);
+    }
   }
 
   return { written, skipped, patched };
