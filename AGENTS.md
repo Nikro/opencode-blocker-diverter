@@ -724,7 +724,8 @@ Before submitting PR:
 **Check**:
 1. TypeScript errors (syntax errors prevent loading)
 2. Plugin export name matches: `export const BlockerDiverter: Plugin`
-3. opencode.json plugin array correct: `["opencode-blocker-diverter"]`
+3. Project `opencode.jsonc` includes `"./node_modules/opencode-blocker-diverter"` in `plugin` (auto-patched by `postinstall`)
+4. Project `.opencode/tui.jsonc` includes `"../node_modules/opencode-blocker-diverter"` in `plugin` for Ctrl+P/TUI commands
 
 ### Hooks Not Firing
 **Symptom**: Expected behavior not happening  

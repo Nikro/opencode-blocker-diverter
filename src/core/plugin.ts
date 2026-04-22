@@ -50,7 +50,10 @@ export const createPlugin: Plugin = async (ctx) => {
   const logClient = client as unknown as LogClient;
 
   // Load and validate configuration (graceful degradation on errors)
-  const config = await loadConfig(worktree, logClient);
+  // NOTE: Do NOT pass logClient here. config.ts's internal logInfo/logWarning
+  // await client.app.log() via HTTP. During plugin init, OpenCode cannot process
+  // that HTTP request while waiting for createPlugin() to complete → deadlock.
+  const config = await loadConfig(worktree);
 
   // Log plugin initialization
   await logInfo(logClient, "Blocker Diverter plugin initialized", {
@@ -90,6 +93,22 @@ export const createPlugin: Plugin = async (ctx) => {
 
     // System prompt transformation - inject blocker diversion instructions
     ...systemPromptHooks,
+
+    // Permission hook - auto-allow tool permissions during autonomous mode
+    // Prevents permission prompts from blocking overnight sessions
+    "permission.ask": async (
+      input: { sessionID: string; [key: string]: unknown },
+      output: { status: "ask" | "deny" | "allow" }
+    ) => {
+      const state = getState(input.sessionID);
+      if (state.divertBlockers) {
+        output.status = "allow";
+        await logInfo(logClient, "Auto-allowed permission in autonomous mode", {
+          sessionID: input.sessionID,
+          permissionType: (input as any).type,
+        });
+      }
+    },
 
     // Command hook - handle dot-delimited /blockers.* commands
     "command.execute.before": async (
@@ -140,9 +159,10 @@ export const createPlugin: Plugin = async (ctx) => {
           }
         }
         
-        // Replace output.parts with minimal response
+        // Replace output.parts content in-place (splice preserves the original array
+        // reference held by the caller in prompt.ts; assignment would be a no-op there)
         if (result.minimalResponse) {
-          output.parts = [{ type: 'text', text: result.minimalResponse }];
+          output.parts.splice(0, output.parts.length, { type: 'text', text: result.minimalResponse })
         }
       }
     },

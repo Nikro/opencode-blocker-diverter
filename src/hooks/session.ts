@@ -249,6 +249,17 @@ Latest: ${JSON.stringify(recentBlockers, null, 2)}
         // Handle user messages: auto-disable if blocker diverter is active
         if (message.role === 'user') {
           const state = getState(sessionID)
+
+          // If a blocker command just ran, it set ignoreNextUserMessage to absorb the
+          // user-message that the command template creates. Skip auto-disable once.
+          if (state.ignoreNextUserMessage) {
+            updateState(sessionID, s => {
+              s.ignoreNextUserMessage = false
+            })
+            await logDebug(loggingClient, 'Skipping auto-disable (command user-message absorbed)', { sessionID })
+            return
+          }
+
           if (state.divertBlockers) {
             // User is taking manual control - disable autonomous mode
             updateState(sessionID, s => {
@@ -682,6 +693,13 @@ async function injectContinuePrompt(
   try {
     const continuePrompt = getStopPrompt(sessionId, config)
 
+    // Mark state so chat.message hook skips auto-disable for this synthetic user-message.
+    // promptAsync injects a message that arrives as role=user; without this flag the
+    // auto-disable logic would fire and hand control back to the human on every nudge.
+    updateState(sessionId, s => {
+      s.ignoreNextUserMessage = true
+    })
+
     // Use promptAsync with timeout to prevent indefinite hangs
     await withTimeout(
       client.session.promptAsync(continuePrompt),
@@ -704,6 +722,11 @@ async function injectContinuePrompt(
       blockerCount: updatedState.blockers.length
     })
   } catch (error) {
+    // Injection failed - clear the flag so a real user message is not swallowed
+    updateState(sessionId, s => {
+      s.ignoreNextUserMessage = false
+    })
+
     // Log specific timeout errors separately
     if (error instanceof TimeoutError) {
       await logError(

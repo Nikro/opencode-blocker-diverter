@@ -32,48 +32,43 @@ AI coding agents get chatty. They stop to ask questions about framework choices,
 
 ## Quick Start
 
-### Installation
-
-**From npm:**
-```bash
-npm install -g opencode-blocker-diverter
-```
-
-**In your project's `opencode.json`:**
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-blocker-diverter"]
-}
-```
-
-**Or local development:**
-```bash
-# Clone and link for development
-git clone https://github.com/Nikro/opencode-blocker-diverter.git
-cd opencode-blocker-diverter
-bun install
-bun run build
-
-# Link to OpenCode (from project directory with opencode.json)
-npm link /path/to/opencode-blocker-diverter
-```
-
-### Basic Usage
-
-> **⚠️ Important:** The plugin requires explicit activation via `/blockers.on` command. This ensures autonomous behavior only happens when you intentionally enable it.
-
-**Enabling the plugin:**
+### Installation (one-liner, no manual config edits)
 
 ```bash
-# In OpenCode TUI
-/blockers.on
+# In your project root
+npm install opencode-blocker-diverter
 ```
 
-This will:
-1. Show a toast notification: "✅ Blocker diverter enabled for this session"
-2. Send a dummy message to the AI to acknowledge the change
-3. Enable autonomous mode for the current session
+That's it. The `postinstall` script automatically:
+
+1. **Patches `opencode.jsonc`** (or `opencode.json`) in your project root to add `"./node_modules/opencode-blocker-diverter"` to `plugin` — creates the file if neither exists.
+2. **Patches `.opencode/tui.jsonc`** (or `.opencode/tui.json`) to add `"../node_modules/opencode-blocker-diverter"` so Ctrl+P/TUI commands load.
+3. Seeds `.opencode/blocker-diverter.json` — default config (edit freely).
+4. Seeds `.opencode/commands/blockers.*.md` — slash-command templates.
+
+Then **restart OpenCode** and the plugin is active.
+
+> **No global `~/.config/opencode/` edits.** Registration happens only in your project's
+> own `opencode.jsonc`, which is the correct approach for OpenCode 1.4+.
+
+> **Existing files are never overwritten.** Re-running `npm install` is fully idempotent.
+> If `opencode.jsonc` already exists, only the `"plugin"` array is patched — all other
+> settings are preserved.
+
+### Toggle autonomous mode
+
+Use the command palette (`Ctrl+P`) or the keyboard shortcut `Ctrl+B`:
+
+```
+Blocker Diverter: Toggle   →  Ctrl+B  (or /blockers.toggle)
+Blocker Diverter: Enable   →  /blockers.on
+Blocker Diverter: Disable  →  /blockers.off
+Blocker Diverter: Status   →  /blockers.status
+Blocker Diverter: List     →  /blockers.list
+```
+
+Both the **Ctrl+P command palette** and **slash commands** (`/blockers.*`) are available for all entries above. Autonomous mode is **OFF by default** — activate it with `Ctrl+B` or `/blockers.on` before starting an autonomous session.
+When enabled you'll see: "✅ Blocker diverter enabled for this session".
 
 **The plugin automatically disables when you:**
 - Send any manual message to the AI
@@ -82,13 +77,31 @@ This will:
 
 When auto-disabled, you'll see: "🛑 Blocker diverter auto-disabled (user input detected)"
 
-**Other commands:**
+<details>
+<summary><strong>Local development install</strong></summary>
 
 ```bash
-/blockers.off          # Manually disable autonomous mode
-/blockers.status       # Check if enabled and see blocker count
-/blockers.list         # View all blockers logged in this session
+# Clone and link for development
+git clone https://github.com/Nikro/opencode-blocker-diverter.git
+cd opencode-blocker-diverter
+bun install
+bun run build
+
+# In your consuming project:
+npm link /path/to/opencode-blocker-diverter
 ```
+
+</details>
+
+## Ship Checklist (Quick Verification)
+
+Run these after `npm install opencode-blocker-diverter` in a target project:
+
+1. `opencode.jsonc` contains `"./node_modules/opencode-blocker-diverter"` under `plugin`.
+2. `.opencode/tui.jsonc` contains `"../node_modules/opencode-blocker-diverter"` under `plugin`.
+3. `.opencode/commands/` includes `blockers.on/off/status/list/clarify`.
+4. Restart OpenCode, then verify `Ctrl+P` shows `Blocker Diverter:*` commands.
+5. Run `/blockers.status`, then `/blockers.on`, and confirm toast + status changes.
 
 ## Configuration
 
@@ -102,6 +115,7 @@ If needed, create `.opencode/blocker-diverter.json` in your project:
 ```json
 {
   "enabled": true,
+  "defaultDivertBlockers": false,
   "blockersFile": "BLOCKERS.md",
   "maxBlockersPerRun": 50,
   "cooldownMs": 30000,
@@ -123,7 +137,7 @@ If needed, create `.opencode/blocker-diverter.json` in your project:
 
 ## How It Works
 
-When you run `/blockers.on`, the plugin:
+When autonomous mode is enabled (via `Ctrl+B`, `/blockers.on`, or setting `defaultDivertBlockers: true` in config), the plugin:
 
 1. Adds instructions to the AI's system prompt about using the `blocker` tool
 2. Provides the AI with a `blocker` tool it can call when stuck

@@ -18,6 +18,7 @@ import type { PluginModule } from "@opencode-ai/plugin";
  * Newer versions require { server: Plugin } (PluginModule) for server-side plugins.
  */
 const plugin: PluginModule = {
+  id: "opencode-blocker-diverter",
   server: createPlugin,
 };
 

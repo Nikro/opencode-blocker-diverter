@@ -214,6 +214,16 @@ export interface SessionState {
    * Used by session.idle handler to decide whether to reprompt or stop.
    */
   lastAssistantAborted: boolean
+
+  /**
+   * Prevents auto-disable from firing after a blocker command is executed.
+   *
+   * When /blockers.on|off|status|stop runs via session.command, OpenCode creates
+   * a user message for the command template. The chat.message hook sees this user
+   * message and would immediately auto-disable divertBlockers. Setting this flag
+   * causes the hook to skip auto-disable exactly once (for that command message).
+   */
+  ignoreNextUserMessage: boolean
 }
 
 /**

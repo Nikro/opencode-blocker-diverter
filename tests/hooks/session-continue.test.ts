@@ -511,6 +511,181 @@ describe('Session Idle - Completion Marker Detection', () => {
   })
 })
 
+describe('Chat Message - Auto-disable NOT triggered by injected continuation prompt', () => {
+  /**
+   * Regression tests for the bug where `injectContinuePrompt` caused the
+   * chat.message hook to auto-disable autonomous mode because the synthetic
+   * user-message was treated as real human input.
+   *
+   * Fix: injectContinuePrompt sets ignoreNextUserMessage=true before calling
+   * promptAsync, so the next synthetic user-message is absorbed without
+   * disabling divertBlockers.
+   */
+  let mockContext: Parameters<Plugin>[0]
+  const testSessionId = 'test-session-autodisable'
+
+  beforeEach(() => {
+    cleanupState(testSessionId)
+
+    mockContext = {
+      client: {
+        app: { log: mock(() => Promise.resolve()) },
+        session: { promptAsync: mock(() => Promise.resolve()) }
+      },
+      project: { id: 'test-project', worktree: '/test', name: 'test' },
+      $: mock(() => ({})) as any,
+      directory: '/test',
+      worktree: '/test'
+    } as any
+  })
+
+  afterEach(() => {
+    cleanupState(testSessionId)
+  })
+
+  it('sets ignoreNextUserMessage before calling promptAsync', async () => {
+    // Verify that injectContinuePrompt sets the flag synchronously before
+    // the async promptAsync resolves, so chat.message cannot race past it.
+    let flagDuringPrompt = false
+
+    const contextWithSpy = {
+      ...mockContext,
+      client: {
+        app: { log: mock(() => Promise.resolve()) },
+        session: {
+          promptAsync: mock(() => {
+            flagDuringPrompt = getState(testSessionId).ignoreNextUserMessage === true
+            return Promise.resolve()
+          })
+        }
+      }
+    } as any
+
+    const hooks = createSessionHooks(contextWithSpy)
+
+    const state = getState(testSessionId)
+    state.divertBlockers = true
+    state.repromptCount = 0
+    state.lastRepromptTime = 0
+
+    await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
+
+    expect(flagDuringPrompt).toBe(true)
+  })
+
+  it('divertBlockers remains true after synthetic user-message from continuation nudge', async () => {
+    const hooks = createSessionHooks(mockContext)
+
+    // Put session into autonomous mode
+    const state = getState(testSessionId)
+    state.divertBlockers = true
+    state.repromptCount = 0
+    state.lastRepromptTime = 0
+
+    // Step 1: session.idle triggers continuation prompt injection
+    await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
+
+    // Verify promptAsync was called (injection happened)
+    expect(mockContext.client.session.promptAsync).toHaveBeenCalled()
+
+    // Step 2: simulate the synthetic user-message that promptAsync generates
+    await hooks['chat.message']?.(
+      { sessionID: testSessionId },
+      {
+        message: { role: 'user' },
+        parts: [{ type: 'text', text: '(autonomous continuation nudge)' }]
+      }
+    )
+
+    // divertBlockers MUST still be true — the synthetic message was absorbed
+    const afterState = getState(testSessionId)
+    expect(afterState.divertBlockers).toBe(true)
+  })
+
+  it('ignoreNextUserMessage is cleared after absorbing synthetic message', async () => {
+    const hooks = createSessionHooks(mockContext)
+
+    const state = getState(testSessionId)
+    state.divertBlockers = true
+    state.repromptCount = 0
+    state.lastRepromptTime = 0
+
+    // Trigger injection
+    await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
+
+    // Absorb synthetic message
+    await hooks['chat.message']?.(
+      { sessionID: testSessionId },
+      {
+        message: { role: 'user' },
+        parts: [{ type: 'text', text: 'nudge' }]
+      }
+    )
+
+    // Flag must be reset so a REAL subsequent user message is not swallowed
+    expect(getState(testSessionId).ignoreNextUserMessage).toBe(false)
+  })
+
+  it('real human message after synthetic message still auto-disables', async () => {
+    const hooks = createSessionHooks(mockContext)
+
+    const state = getState(testSessionId)
+    state.divertBlockers = true
+    state.repromptCount = 0
+    state.lastRepromptTime = 0
+
+    // Trigger injection → sets ignoreNextUserMessage=true
+    await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
+
+    // First user message: synthetic (absorbed)
+    await hooks['chat.message']?.(
+      { sessionID: testSessionId },
+      {
+        message: { role: 'user' },
+        parts: [{ type: 'text', text: 'synthetic nudge' }]
+      }
+    )
+
+    expect(getState(testSessionId).divertBlockers).toBe(true) // still on
+
+    // Second user message: real human input → should auto-disable
+    await hooks['chat.message']?.(
+      { sessionID: testSessionId },
+      {
+        message: { role: 'user' },
+        parts: [{ type: 'text', text: 'Hey, can you help me with something?' }]
+      }
+    )
+
+    expect(getState(testSessionId).divertBlockers).toBe(false)
+  })
+
+  it('clears ignoreNextUserMessage when promptAsync fails', async () => {
+    const errorCtx = {
+      ...mockContext,
+      client: {
+        app: { log: mock(() => Promise.resolve()) },
+        session: {
+          promptAsync: mock(() => Promise.reject(new Error('network error')))
+        }
+      }
+    } as any
+
+    const hooks = createSessionHooks(errorCtx)
+
+    const state = getState(testSessionId)
+    state.divertBlockers = true
+    state.repromptCount = 0
+    state.lastRepromptTime = 0
+
+    // Injection fails
+    await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
+
+    // Flag must have been cleared by the catch block
+    expect(getState(testSessionId).ignoreNextUserMessage).toBe(false)
+  })
+})
+
 describe('Chat Message - Assistant Message Capture', () => {
   let mockContext: Parameters<Plugin>[0]
   const testSessionId = 'test-session-chat'

@@ -55,6 +55,10 @@ export async function handleOnCommand(
 ): Promise<CommandResult> {
   const wasDiverted = state.divertBlockers
   state.divertBlockers = true
+  // Prevent chat.message from auto-disabling due to the command's user message
+  state.ignoreNextUserMessage = true
+  // Reset reprompt time so the cooldown starts now, preventing immediate reprompting
+  state.lastRepromptTime = Date.now()
   
   await logInfo(
     client,
@@ -93,6 +97,8 @@ export async function handleOffCommand(
 ): Promise<CommandResult> {
   const wasDiverted = state.divertBlockers
   state.divertBlockers = false
+  // Prevent chat.message from triggering auto-disable logic for the command's user message
+  state.ignoreNextUserMessage = true
   
   await logInfo(
     client,
@@ -138,6 +144,7 @@ export async function handleStopCommand(
   state.lastAssistantAborted = false
   state.repromptCount = 0
   state.lastRepromptTime = 0
+  state.ignoreNextUserMessage = true
   
   await logInfo(
     client,
@@ -178,6 +185,7 @@ export async function handleStatusCommand(
   const status = state.divertBlockers ? 'enabled' : 'disabled'
   const blockerCount = state.blockers.length
   const maxBlockers = config.maxBlockersPerRun
+  state.ignoreNextUserMessage = true
   
   const statusMessage = 
     `Blocker Diverter Status:\n` +

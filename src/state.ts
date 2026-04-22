@@ -37,7 +37,8 @@ export function getState(sessionId: string): SessionState {
       isRecovering: false,
       pendingWrites: [],
       lastMessageContent: '',
-      lastAssistantAborted: false
+      lastAssistantAborted: false,
+      ignoreNextUserMessage: false
     }
     sessions.set(sessionId, state)
   }
