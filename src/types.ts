@@ -224,6 +224,19 @@ export interface SessionState {
    * causes the hook to skip auto-disable exactly once (for that command message).
    */
   ignoreNextUserMessage: boolean
+
+  /**
+   * Set to true as soon as the completion marker is detected in any assistant
+   * message content, regardless of which hook detects it first.
+   *
+   * Using a dedicated flag makes detection robust to hook ordering: both
+   * chat.message and message.updated handlers set this flag eagerly so that
+   * session.idle will honour it even if it fires before chat.message captures
+   * lastMessageContent.
+   *
+   * Reset to false when divertBlockers is disabled (completion handled).
+   */
+  completionMarkerDetected: boolean
 }
 
 /**

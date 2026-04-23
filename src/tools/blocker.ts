@@ -35,7 +35,7 @@ export function createBlockerTool(
 ): ToolDefinition {
   return tool({
     description:
-      "Log a blocker question to blockers.md and continue with independent tasks. Use for hard blockers (architecture, security, destructive, deployment decisions) or soft blockers with research options. Returns success message.",
+      "Log a blocker question to BLOCKERS.md and continue with independent tasks. Use for hard blockers (architecture, security, destructive, deployment decisions) or soft blockers with research options. Returns success message.",
     args: {
       question: tool.schema
         .string()

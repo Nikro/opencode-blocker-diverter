@@ -92,15 +92,17 @@ const tui: TuiPlugin = async (api, _options, _meta) => {
     }
   };
 
+  // NOTE: no `slash` field on any command below — that would add them to the
+  // slash autocomplete (when typing "/") where .opencode/commands/*.md files
+  // already register the same names via sync.data.command.  Omitting `slash`
+  // keeps these entries Ctrl+P-only and eliminates duplicates.
   const unregister = api.command.register(() => [
-    // 1. Toggle (ctrl+b)
     {
       title: "Blocker Diverter: Toggle",
       value: "blockers.toggle",
       description: "Toggle the blocker diverter on or off for this session",
       category: "Blocker Diverter",
       keybind: "ctrl+b",
-      slash: { name: "blockers.toggle" },
       onSelect: async () => {
         const sessionID = requireSession();
         if (!sessionID) return;
@@ -123,14 +125,11 @@ const tui: TuiPlugin = async (api, _options, _meta) => {
         }
       },
     },
-
-    // 2. Explicitly enable
     {
       title: "Blocker Diverter: Enable",
       value: "blockers.on",
       description: "Enable the blocker diverter for this session",
       category: "Blocker Diverter",
-      slash: { name: "blockers.on" },
       onSelect: async () => {
         const sessionID = requireSession();
         if (!sessionID) return;
@@ -148,14 +147,11 @@ const tui: TuiPlugin = async (api, _options, _meta) => {
         }
       },
     },
-
-    // 3. Explicitly disable
     {
       title: "Blocker Diverter: Disable",
       value: "blockers.off",
       description: "Disable the blocker diverter for this session",
       category: "Blocker Diverter",
-      slash: { name: "blockers.off" },
       onSelect: async () => {
         const sessionID = requireSession();
         if (!sessionID) return;
@@ -173,14 +169,11 @@ const tui: TuiPlugin = async (api, _options, _meta) => {
         }
       },
     },
-
-    // 4. Status
     {
       title: "Blocker Diverter: Status",
       value: "blockers.status",
       description: "Show the current blocker diverter state for this session",
       category: "Blocker Diverter",
-      slash: { name: "blockers.status" },
       onSelect: () => {
         const sessionID = requireSession();
         if (!sessionID) return;
@@ -195,14 +188,11 @@ const tui: TuiPlugin = async (api, _options, _meta) => {
         });
       },
     },
-
-    // 5. List blockers
     {
       title: "Blocker Diverter: List",
       value: "blockers.list",
       description: "List all blockers logged in this session",
       category: "Blocker Diverter",
-      slash: { name: "blockers.list" },
       onSelect: async () => {
         const sessionID = requireSession();
         if (!sessionID) return;

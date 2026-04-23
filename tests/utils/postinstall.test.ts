@@ -4,9 +4,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir, homedir } from "node:os";
 
 // Import helpers from the postinstall script
 import {
@@ -14,6 +14,7 @@ import {
   copyIfMissing,
   copyAlways,
   isConsumingProject,
+  isOpenCodeGlobalConfigDir,
   generateDefaultConfig,
   patchOpencodeConfig,
   patchTuiConfig,
@@ -405,18 +406,6 @@ describe("bootstrap", () => {
 
   beforeEach(() => {
     pkgDir = makeTmp("-pkg");
-    // Simulate the package's .opencode/commands directory with some files.
-    const commandsDir = join(pkgDir, ".opencode", "commands");
-    mkdirSync(commandsDir, { recursive: true });
-    for (const name of [
-      "blockers.on.md",
-      "blockers.off.md",
-      "blockers.status.md",
-      "blockers.list.md",
-      "blockers.clarify.md",
-    ]) {
-      writeFileSync(join(commandsDir, name), `# ${name}`);
-    }
   });
 
   afterEach(() => {
@@ -445,8 +434,8 @@ describe("bootstrap", () => {
     expect(existsSync(join(tmpRoot, ".opencode", "tui.jsonc"))).toBe(true);
     const tuiParsed = JSON.parse(readFileSync(join(tmpRoot, ".opencode", "tui.jsonc"), "utf8")) as Record<string, unknown>;
     expect((tuiParsed.plugin as string[]).includes(TUI_PLUGIN_PATH_SPEC)).toBe(true);
-    // commands
-    expect(existsSync(join(tmpRoot, ".opencode", "commands", "blockers.on.md"))).toBe(true);
+    // pkgDir has no source command files, so nothing is seeded (graceful no-op)
+    expect(existsSync(join(tmpRoot, ".opencode", "commands", "blockers.on.md"))).toBe(false);
 
     // No merged shim should be created
     expect(existsSync(join(tmpRoot, ".opencode", "plugins", "opencode-blocker-diverter.ts"))).toBe(false);
@@ -459,7 +448,7 @@ describe("bootstrap", () => {
     expect(existsSync(shimPath)).toBe(false);
   });
 
-  it("is idempotent on second run — opencode.jsonc not rewritten, command files overwritten", () => {
+  it("is idempotent on second run — opencode.jsonc not rewritten, no command files written", () => {
     writeFileSync(join(tmpRoot, "package.json"), JSON.stringify({ name: "my-app" }));
     bootstrap(tmpRoot, pkgDir);
     const jsoncPath = join(tmpRoot, "opencode.jsonc");
@@ -470,9 +459,9 @@ describe("bootstrap", () => {
     expect(patched.length).toBe(0);
     // opencode.jsonc content must not change.
     expect(readFileSync(jsoncPath, "utf8")).toBe(beforeContent);
-    // Command files are always overwritten (plugin-owned).
+    // No command files written (pkgDir is empty, no source files to seed).
     const commandsWritten = written.filter((f) => f.includes("commands"));
-    expect(commandsWritten.length).toBe(5);
+    expect(commandsWritten.length).toBe(0);
   });
 
   it("does not overwrite a user-edited config", () => {
@@ -509,11 +498,11 @@ describe("bootstrap", () => {
 
   it("skips missing command source files gracefully", () => {
     writeFileSync(join(tmpRoot, "package.json"), JSON.stringify({ name: "my-app" }));
-    // Use an empty pkgDir without commands
+    // Use an empty pkgDir without commands — bootstrap must not crash.
     const emptyPkg = makeTmp("-empty");
     try {
       const { written } = bootstrap(tmpRoot, emptyPkg);
-      // No commands written
+      // No commands written (seeding is disabled).
       const commandsWritten = written.filter((f) => f.includes("commands"));
       expect(commandsWritten.length).toBe(0);
     } finally {
@@ -521,18 +510,243 @@ describe("bootstrap", () => {
     }
   });
 
-  it("should overwrite existing command files on reinstall", () => {
+  it("does NOT overwrite existing command files (copyIfMissing — user edits preserved)", () => {
     writeFileSync(join(tmpRoot, "package.json"), JSON.stringify({ name: "my-app" }));
     // Pre-seed a stale version of a command file in the dest.
     const commandsDest = join(tmpRoot, ".opencode", "commands");
     mkdirSync(commandsDest, { recursive: true });
     writeFileSync(join(commandsDest, "blockers.on.md"), "# stale old content");
 
+    // Put source file in pkgDir so seeding would attempt to copy it.
+    const commandsSrc = join(pkgDir, ".opencode", "commands");
+    mkdirSync(commandsSrc, { recursive: true });
+    writeFileSync(join(commandsSrc, "blockers.on.md"), "# new content from package");
+
     bootstrap(tmpRoot, pkgDir);
 
-    // File must now contain the new source content, not the stale content.
+    // File must remain untouched — copyIfMissing preserves user edits.
     const content = readFileSync(join(commandsDest, "blockers.on.md"), "utf8");
-    expect(content).toBe("# blockers.on.md");
-    expect(content).not.toBe("# stale old content");
+    expect(content).toBe("# stale old content");
+  });
+
+  it("seeds command files to .opencode/commands/ for a regular project install", () => {
+    writeFileSync(join(tmpRoot, "package.json"), JSON.stringify({ name: "my-app" }));
+    // Provide source command files in pkgDir.
+    const commandsSrc = join(pkgDir, ".opencode", "commands");
+    mkdirSync(commandsSrc, { recursive: true });
+    for (const file of ["blockers.on.md", "blockers.off.md", "blockers.status.md", "blockers.list.md", "blockers.clarify.md"]) {
+      writeFileSync(join(commandsSrc, file), `# ${file}`);
+    }
+
+    const { written } = bootstrap(tmpRoot, pkgDir);
+
+    // All 5 command files must be seeded.
+    for (const file of ["blockers.on.md", "blockers.off.md", "blockers.status.md", "blockers.list.md", "blockers.clarify.md"]) {
+      expect(existsSync(join(tmpRoot, ".opencode", "commands", file))).toBe(true);
+    }
+    const commandsWritten = written.filter((f) => f.includes("commands"));
+    expect(commandsWritten.length).toBe(5);
+  });
+});
+
+// ---- isOpenCodeGlobalConfigDir ----
+
+describe("isOpenCodeGlobalConfigDir", () => {
+  it("returns true for the default global config dir", () => {
+    const xdgConfig = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+    const globalDir = join(xdgConfig, "opencode");
+    expect(isOpenCodeGlobalConfigDir(globalDir)).toBe(true);
+  });
+
+  it("returns false for an arbitrary temp directory", () => {
+    expect(isOpenCodeGlobalConfigDir(tmpRoot)).toBe(false);
+  });
+
+  it("returns true when XDG_CONFIG_HOME is set", () => {
+    const original = process.env.XDG_CONFIG_HOME;
+    try {
+      process.env.XDG_CONFIG_HOME = tmpRoot;
+      const expectedDir = join(tmpRoot, "opencode");
+      expect(isOpenCodeGlobalConfigDir(expectedDir)).toBe(true);
+      expect(isOpenCodeGlobalConfigDir(tmpRoot)).toBe(false);
+    } finally {
+      if (original === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = original;
+      }
+    }
+  });
+
+  it("returns false for a subdirectory of the global config dir", () => {
+    const xdgConfig = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+    const subDir = join(xdgConfig, "opencode", "commands");
+    expect(isOpenCodeGlobalConfigDir(subDir)).toBe(false);
+  });
+
+  it("returns true when dir is a symlink pointing to the real global config dir", () => {
+    // Create a real directory that acts as the canonical global config dir.
+    const realDir = makeTmp("-real-global");
+    const symLink = join(tmpRoot, "opencode-link");
+    symlinkSync(realDir, symLink);
+
+    const original = process.env.XDG_CONFIG_HOME;
+    try {
+      // Point XDG_CONFIG_HOME so that globalDir === realDir.
+      // We fake globalDir = realDir by setting XDG_CONFIG_HOME to realDir's
+      // parent and naming the subdir "opencode".
+      const fakeXdg = join(tmpRoot, "xdg");
+      mkdirSync(fakeXdg, { recursive: true });
+      const fakeGlobalDir = join(fakeXdg, "opencode");
+      // fakeGlobalDir is a symlink → realDir
+      symlinkSync(realDir, fakeGlobalDir);
+
+      process.env.XDG_CONFIG_HOME = fakeXdg;
+
+      // symLink also resolves to realDir — so isOpenCodeGlobalConfigDir must return true.
+      expect(isOpenCodeGlobalConfigDir(symLink)).toBe(true);
+    } finally {
+      if (original === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = original;
+      }
+      rmSync(realDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns true when INIT_CWD is the real path of a symlinked global config dir", () => {
+    // Simulates the production scenario:
+    //   ~/.config/opencode → /var/www/opencode-config (symlink)
+    //   INIT_CWD = /var/www/opencode-config (real path)
+    // isOpenCodeGlobalConfigDir(realPath) must still return true.
+    const realDir = makeTmp("-real-config");
+    const fakeXdg = join(tmpRoot, "xdg2");
+    mkdirSync(fakeXdg, { recursive: true });
+    const fakeGlobalDir = join(fakeXdg, "opencode");
+    // fakeGlobalDir is a symlink → realDir
+    symlinkSync(realDir, fakeGlobalDir);
+
+    const original = process.env.XDG_CONFIG_HOME;
+    try {
+      process.env.XDG_CONFIG_HOME = fakeXdg;
+      // Passing the real (non-symlink) path directly — must match.
+      expect(isOpenCodeGlobalConfigDir(realDir)).toBe(true);
+    } finally {
+      if (original === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = original;
+      }
+      rmSync(realDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns false for a non-existent path (no crash, falls back to resolve)", () => {
+    const original = process.env.XDG_CONFIG_HOME;
+    try {
+      process.env.XDG_CONFIG_HOME = tmpRoot;
+      // A path that does not exist on disk — realpathSync will throw and we fallback.
+      const ghost = join(tmpRoot, "does-not-exist", "opencode");
+      expect(isOpenCodeGlobalConfigDir(ghost)).toBe(false);
+    } finally {
+      if (original === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = original;
+      }
+    }
+  });
+});
+
+// ---- bootstrap: global config dir ----
+
+describe("bootstrap (global config dir)", () => {
+  let pkgDir: string;
+
+  beforeEach(() => {
+    pkgDir = makeTmp("-pkg");
+  });
+
+  afterEach(() => {
+    rmSync(pkgDir, { recursive: true, force: true });
+  });
+
+  it("seeds blocker command files to commands/ (root) for global config dir install", () => {
+    const original = process.env.XDG_CONFIG_HOME;
+    try {
+      process.env.XDG_CONFIG_HOME = tmpRoot;
+      const globalDir = join(tmpRoot, "opencode");
+      mkdirSync(globalDir, { recursive: true });
+
+      // Provide source command files in pkgDir.
+      const commandsSrc = join(pkgDir, ".opencode", "commands");
+      mkdirSync(commandsSrc, { recursive: true });
+      for (const file of ["blockers.on.md", "blockers.off.md"]) {
+        writeFileSync(join(commandsSrc, file), `# ${file}`);
+      }
+
+      const { written } = bootstrap(globalDir, pkgDir);
+
+      // For global config dir, files go to commands/ at the root (not .opencode/commands/)
+      expect(existsSync(join(globalDir, "commands", "blockers.on.md"))).toBe(true);
+      expect(existsSync(join(globalDir, ".opencode", "commands", "blockers.on.md"))).toBe(false);
+
+      const commandsWritten = written.filter((f) => f.includes("commands"));
+      expect(commandsWritten.length).toBeGreaterThan(0);
+    } finally {
+      if (original === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = original;
+      }
+    }
+  });
+
+  it("seeds blocker command files to .opencode/commands/ for a regular project dir", () => {
+    writeFileSync(join(tmpRoot, "package.json"), JSON.stringify({ name: "my-app" }));
+
+    // Provide source command files in pkgDir.
+    const commandsSrc = join(pkgDir, ".opencode", "commands");
+    mkdirSync(commandsSrc, { recursive: true });
+    writeFileSync(join(commandsSrc, "blockers.on.md"), "# blockers.on");
+
+    const { written } = bootstrap(tmpRoot, pkgDir);
+
+    expect(existsSync(join(tmpRoot, ".opencode", "commands", "blockers.on.md"))).toBe(true);
+    expect(existsSync(join(tmpRoot, "commands", "blockers.on.md"))).toBe(false);
+
+    const commandsWritten = written.filter((f) => f.includes("commands"));
+    expect(commandsWritten.length).toBeGreaterThan(0);
+  });
+
+  it("does NOT create .opencode/blocker-diverter.json for global config dir install", () => {
+    const original = process.env.XDG_CONFIG_HOME;
+    try {
+      process.env.XDG_CONFIG_HOME = tmpRoot;
+      const globalDir = join(tmpRoot, "opencode");
+      mkdirSync(globalDir, { recursive: true });
+
+      bootstrap(globalDir, pkgDir);
+
+      // Root-level blocker-diverter.json MUST be created (canonical location)
+      expect(existsSync(join(globalDir, "blocker-diverter.json"))).toBe(true);
+      // .opencode/blocker-diverter.json MUST NOT be created (duplicate)
+      expect(existsSync(join(globalDir, ".opencode", "blocker-diverter.json"))).toBe(false);
+    } finally {
+      if (original === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = original;
+      }
+    }
+  });
+
+  it("creates both root and .opencode/blocker-diverter.json for regular project installs", () => {
+    writeFileSync(join(tmpRoot, "package.json"), JSON.stringify({ name: "my-app" }));
+    bootstrap(tmpRoot, pkgDir);
+
+    expect(existsSync(join(tmpRoot, "blocker-diverter.json"))).toBe(true);
+    expect(existsSync(join(tmpRoot, ".opencode", "blocker-diverter.json"))).toBe(true);
   });
 });

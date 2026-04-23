@@ -707,6 +707,185 @@ describe('Chat Message - Auto-disable NOT triggered by injected continuation pro
   })
 })
 
+describe('Completion Marker - completionMarkerDetected flag (robust fallback)', () => {
+  let mockContext: Parameters<Plugin>[0]
+  const testSessionId = 'test-session-marker-flag'
+
+  beforeEach(() => {
+    cleanupState(testSessionId)
+
+    mockContext = {
+      client: {
+        app: { log: mock(() => Promise.resolve()) },
+        session: { promptAsync: mock(() => Promise.resolve()) }
+      },
+      project: { id: 'test-project', worktree: '/test', name: 'test' },
+      $: mock(() => ({})) as any,
+      directory: '/test',
+      worktree: '/test'
+    } as any
+  })
+
+  afterEach(() => {
+    cleanupState(testSessionId)
+  })
+
+  it('stops reprompting when completionMarkerDetected=true even if lastMessageContent is empty', async () => {
+    // Simulates the race condition: session.idle fires before chat.message
+    // updates lastMessageContent, but the flag was already set.
+    const hooks = createSessionHooks(mockContext)
+
+    const state = getState(testSessionId)
+    state.divertBlockers = true
+    state.lastMessageContent = '' // empty — not yet captured by chat.message
+    state.completionMarkerDetected = true // flag set by earlier detection
+
+    await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
+
+    // Must NOT inject continuation prompt
+    expect(mockContext.client.session.promptAsync).not.toHaveBeenCalled()
+  })
+
+  it('disables divertBlockers and resets flag when completionMarkerDetected is true', async () => {
+    const hooks = createSessionHooks(mockContext)
+
+    const state = getState(testSessionId)
+    state.divertBlockers = true
+    state.completionMarkerDetected = true
+
+    await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
+
+    const after = getState(testSessionId)
+    expect(after.divertBlockers).toBe(false)
+    expect(after.completionMarkerDetected).toBe(false)
+  })
+
+  it('chat.message sets completionMarkerDetected when marker found in assistant content', async () => {
+    const hooks = createSessionHooks(mockContext)
+
+    await hooks['chat.message']?.(
+      { sessionID: testSessionId },
+      {
+        message: { role: 'assistant' },
+        parts: [{ type: 'text', text: 'All done! BLOCKER_DIVERTER_DONE!' }]
+      }
+    )
+
+    const state = getState(testSessionId)
+    expect(state.completionMarkerDetected).toBe(true)
+  })
+
+  it('chat.message does NOT set completionMarkerDetected when marker absent', async () => {
+    const hooks = createSessionHooks(mockContext)
+
+    await hooks['chat.message']?.(
+      { sessionID: testSessionId },
+      {
+        message: { role: 'assistant' },
+        parts: [{ type: 'text', text: 'Still working on it...' }]
+      }
+    )
+
+    const state = getState(testSessionId)
+    expect(state.completionMarkerDetected).toBe(false)
+  })
+
+  it('message.updated fallback updates lastMessageContent but does NOT set completionMarkerDetected (config-aware idle will confirm)', async () => {
+    // Fix: message.updated must NOT use a hardcoded default marker.
+    // It only updates lastMessageContent; session.idle re-confirms via checkCompletionMarker
+    // which reads config.completionMarker — preventing false positives with custom markers.
+    const hooks = createSessionHooks(mockContext)
+
+    await hooks.event({
+      event: {
+        type: 'message.updated',
+        properties: {
+          info: {
+            role: 'assistant',
+            sessionID: testSessionId,
+            finish: 'stop',
+            content: 'All tasks complete. BLOCKER_DIVERTER_DONE!'
+          }
+        }
+      }
+    })
+
+    const state = getState(testSessionId)
+    // completionMarkerDetected must NOT be set here — idle will re-confirm with config
+    expect(state.completionMarkerDetected).toBe(false)
+    // lastMessageContent IS updated so idle's checkCompletionMarker can inspect it
+    expect(state.lastMessageContent).toContain('BLOCKER_DIVERTER_DONE!')
+  })
+
+  it('message.updated fallback does NOT set flag when no finish or no marker', async () => {
+    const hooks = createSessionHooks(mockContext)
+
+    // Streaming update — no finish field
+    await hooks.event({
+      event: {
+        type: 'message.updated',
+        properties: {
+          info: {
+            role: 'assistant',
+            sessionID: testSessionId,
+            content: 'Partial content without marker'
+          }
+        }
+      }
+    })
+
+    const state = getState(testSessionId)
+    expect(state.completionMarkerDetected).toBe(false)
+  })
+
+  it('session.idle stops reprompting when lastMessageContent contains default marker (config-aware path)', async () => {
+    // Validates that the idle handler detects the default marker via checkCompletionMarker
+    // now that message.updated no longer pre-sets completionMarkerDetected.
+    const hooks = createSessionHooks(mockContext)
+
+    const state = getState(testSessionId)
+    state.divertBlockers = true
+    state.lastMessageContent = 'All done! BLOCKER_DIVERTER_DONE!'
+    state.completionMarkerDetected = false // flag NOT pre-set by message.updated
+
+    await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
+
+    // Idle must detect it via checkCompletionMarker and stop
+    expect(mockContext.client.session.promptAsync).not.toHaveBeenCalled()
+    expect(getState(testSessionId).divertBlockers).toBe(false)
+  })
+
+  it('default marker text in message does NOT trigger stop when custom completionMarker is configured', async () => {
+    // Regression test: with the old hardcoded fallback, a message containing
+    // "BLOCKER_DIVERTER_DONE!" would set completionMarkerDetected=true even when
+    // the configured marker is something else, causing a premature session stop.
+    //
+    // The mock project worktree '/test' will load default config (no custom marker file),
+    // so the configured marker IS 'BLOCKER_DIVERTER_DONE!'. We test the message.updated
+    // path specifically: it must NOT set completionMarkerDetected=true even for default marker.
+    const hooks = createSessionHooks(mockContext)
+
+    await hooks.event({
+      event: {
+        type: 'message.updated',
+        properties: {
+          info: {
+            role: 'assistant',
+            sessionID: testSessionId,
+            finish: 'stop',
+            content: 'BLOCKER_DIVERTER_DONE!'
+          }
+        }
+      }
+    })
+
+    // Flag must remain false — only idle's config-aware check may set it true (indirectly via lastMessageContent)
+    expect(getState(testSessionId).completionMarkerDetected).toBe(false)
+    // lastMessageContent updated correctly
+    expect(getState(testSessionId).lastMessageContent).toContain('BLOCKER_DIVERTER_DONE!')
+  })
+})
+
 describe('Chat Message - Assistant Message Capture', () => {
   let mockContext: Parameters<Plugin>[0]
   const testSessionId = 'test-session-chat'

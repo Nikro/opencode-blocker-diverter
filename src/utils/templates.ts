@@ -236,7 +236,7 @@ You are operating in AUTONOMOUS MODE with the Blocker Diverter plugin active.
 
 1. **HARD BLOCKERS** (Architecture, Security, Destructive, Deployment):
    - DO NOT ask the user
-   - Log to blockers.md with STRUCTURED CONTEXT (see below)
+   - Log to BLOCKERS.md with STRUCTURED CONTEXT (see below)
    - Continue with independent parallel tasks
    - Examples: "Which framework?", "Should I delete X?", "Deploy where?"
 
@@ -299,7 +299,7 @@ Before stopping:
 \`\`\`
 User: Build a user authentication system
 You: Which framework should I use? → LOG BLOCKER
-Action: Log to blockers.md: "Framework choice for auth system?"
+Action: Log to BLOCKERS.md: "Framework choice for auth system?"
 Continue: Work on database schema design instead
 \`\`\`
 
@@ -341,7 +341,7 @@ export function getBlockerToolDefinition(): string {
   return `<tools>
 <tool>
   <name>blocker</name>
-  <description>Log a hard blocker question that needs human input to blockers.md and continue with independent tasks. Use this when you hit architecture decisions, security choices, destructive operations, or deployment configurations that block progress. DO NOT use for soft questions (naming, formatting) - make reasonable defaults for those.
+  <description>Log a hard blocker question that needs human input to BLOCKERS.md and continue with independent tasks. Use this when you hit architecture decisions, security choices, destructive operations, or deployment configurations that block progress. DO NOT use for soft questions (naming, formatting) - make reasonable defaults for those.
 
 IMPORTANT: Provide STRUCTURED CONTEXT in the 'context' field:
 - Task Reference: Task ID, todo item, or task description

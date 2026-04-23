@@ -114,7 +114,8 @@ export async function loadConfig(
   client?: LogClient
 ): Promise<Config> {
   // Standard plugin config locations
-  const userConfigPath = join(homedir(), '.config', 'opencode', 'blocker-diverter.json')
+  const userConfigDir = join(homedir(), '.config', 'opencode')
+  const userConfigPath = join(userConfigDir, 'blocker-diverter.json')
   const projectConfigPath = join(projectDir, '.opencode', 'blocker-diverter.json')
 
   // Try project config first (highest priority)
@@ -124,14 +125,21 @@ export async function loadConfig(
     return resolveConfigPaths(projectConfig, projectDir)
   }
 
-  // Fall back to user config
+  // Fall back to user config.
+  // Resolve paths against projectDir in the normal case.
+  // Exception: when projectDir === '/' (global config install) use userConfigDir
+  // to avoid resolving './BLOCKERS.md' to '/BLOCKERS.md' (EACCES).
   const userConfig = await loadConfigFromPath(userConfigPath, client)
   if (userConfig) {
     await logInfo(client, `Loaded config from ${userConfigPath}`)
-    return resolveConfigPaths(userConfig, projectDir)
+    const userConfigBase = projectDir === '/' ? userConfigDir : projectDir
+    return resolveConfigPaths(userConfig, userConfigBase)
   }
 
-  // No config found, use defaults
+  // No config found — use defaults, but resolve paths safely.
+  // When projectDir is '/' (global config install), fall back to userConfigDir
+  // so the default blockersFile is writable (e.g. ~/.config/opencode/BLOCKERS.md).
+  const safeBase = projectDir === '/' ? userConfigDir : projectDir
   await logInfo(
     client,
     'No config found, using defaults',
@@ -139,7 +147,7 @@ export async function loadConfig(
       checkedPaths: [projectConfigPath, userConfigPath] 
     }
   )
-  return getDefaultsWithResolvedPaths(projectDir)
+  return getDefaultsWithResolvedPaths(safeBase)
 }
 
 /**

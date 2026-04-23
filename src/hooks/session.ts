@@ -361,6 +361,15 @@ Latest: ${JSON.stringify(recentBlockers, null, 2)}
               s.lastMessageContent = textContent
             })
 
+            // Eagerly set completionMarkerDetected flag so session.idle can
+            // honour it even if it fires before this hook in some orderings.
+            const config = await loadConfig(ctx.project.worktree)
+            if (textContent.includes(config.completionMarker)) {
+              updateState(sessionID, s => {
+                s.completionMarkerDetected = true
+              })
+            }
+
             await logDebug(loggingClient, 'Captured assistant message', {
               sessionID,
               messageLength: textContent.length,
@@ -404,6 +413,9 @@ async function handleMessageUpdated(
     error?: { name?: string }
     finish?: string
     time?: { completed?: number }
+    // message.updated may carry the final text for finished messages
+    content?: string | Array<{ type?: string; text?: string }>
+    parts?: Array<{ type?: string; text?: string }>
   } | undefined
 
   if (!info || info.role !== 'assistant') return
@@ -434,6 +446,44 @@ async function handleMessageUpdated(
         sessionId,
         finish: info.finish || 'streaming'
       })
+    }
+
+    // Fallback completion marker detection via message.updated.
+    // When the message finishes streaming, some runtimes include text content
+    // in info.content or info.parts. Check for the marker here so that
+    // session.idle honours completionMarkerDetected even if chat.message
+    // fires after session.idle in the event ordering.
+    if (info.finish) {
+      let text = ''
+      if (typeof info.content === 'string') {
+        text = info.content
+      } else if (Array.isArray(info.content)) {
+        text = info.content
+          .filter(c => c.type === 'text' && typeof c.text === 'string')
+          .map(c => c.text ?? '')
+          .join('\n')
+      } else if (Array.isArray(info.parts)) {
+        text = info.parts
+          .filter(p => p.type === 'text' && typeof p.text === 'string')
+          .map(p => p.text ?? '')
+          .join('\n')
+      }
+
+      if (text) {
+        // Update lastMessageContent so the idle handler always has fresh data.
+        // The idle handler's checkCompletionMarker() will evaluate this content
+        // against the configured completionMarker — do NOT set
+        // completionMarkerDetected here with a hardcoded default marker, as that
+        // would cause false positives when a custom marker is configured.
+        updateState(sessionId, s => {
+          s.lastMessageContent = text
+        })
+        await logDebug(client, 'Updated lastMessageContent via message.updated fallback', {
+          sessionId,
+          finish: info.finish,
+          textLength: text.length
+        })
+      }
     }
   }
 }
@@ -654,7 +704,7 @@ async function handleSessionIdle(
 
   // Check for completion marker in last agent response
   // Store last message content in state for completion detection
-  const completionDetected = await checkCompletionMarker(state, config, client, sessionId)
+  const completionDetected = state.completionMarkerDetected || await checkCompletionMarker(state, config, client, sessionId)
   if (completionDetected) {
     await logInfo(client, 'Completion marker detected - stopping autonomous session', { 
       sessionId,
@@ -666,6 +716,7 @@ async function handleSessionIdle(
       s.divertBlockers = false
       s.repromptCount = 0
       s.lastRepromptTime = 0
+      s.completionMarkerDetected = false
     })
     // Show toast notification
     try {

@@ -16,9 +16,10 @@
  *     — the supported registration path without global config edits.
  */
 
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 
 const PKG_DIR = resolve(fileURLToPath(import.meta.url), "..", "..");
 const TARGET_DIR = process.env.INIT_CWD ?? process.cwd();
@@ -79,6 +80,37 @@ export function isConsumingProject(dir) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Check whether a directory is the OpenCode global config directory.
+ * On most systems this is ~/.config/opencode (or $XDG_CONFIG_HOME/opencode).
+ * When the plugin is installed into the global config dir, OpenCode scans
+ * `commands/` directly (not `.opencode/commands/`), so templates must be
+ * written there as well.
+ * @param {string} dir - Directory to check.
+ * @returns {boolean}
+ */
+export function isOpenCodeGlobalConfigDir(dir) {
+  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+  const globalDir = join(xdgConfig, "opencode");
+
+  /**
+   * Resolve canonical paths so that symlinks are followed before comparison.
+   * Falls back to path.resolve() when realpathSync fails (e.g. path does not
+   * exist yet), keeping behaviour unchanged for non-symlink paths.
+   * @param {string} p
+   * @returns {string}
+   */
+  function canonical(p) {
+    try {
+      return realpathSync(p);
+    } catch {
+      return resolve(p);
+    }
+  }
+
+  return canonical(dir) === canonical(globalDir);
 }
 
 /**
@@ -384,10 +416,16 @@ export function bootstrap(targetDir, pkgDir) {
   }
 
   // 2. Default blocker-diverter config (never overwrite user edits).
-  const bdConfigPath = join(targetDir, ".opencode", "blocker-diverter.json");
-  record(bdConfigPath, writeIfMissing(bdConfigPath, generateDefaultConfig()));
+  // For the OpenCode global config dir (~/.config/opencode), OpenCode loads
+  // blocker-diverter.json directly from the root — do NOT create a duplicate
+  // under .opencode/ which would cause confusion on reinstall.
+  if (!isOpenCodeGlobalConfigDir(targetDir)) {
+    const bdConfigPath = join(targetDir, ".opencode", "blocker-diverter.json");
+    record(bdConfigPath, writeIfMissing(bdConfigPath, generateDefaultConfig()));
+  }
 
-  // 2b. Root-level blocker-diverter.json for convenient direct access.
+  // 2b. Root-level blocker-diverter.json (the canonical location for global
+  // config installs; also convenient for project installs).
   const rootBdConfigPath = join(targetDir, "blocker-diverter.json");
   record(rootBdConfigPath, writeIfMissing(rootBdConfigPath, generateDefaultConfig()));
 
@@ -399,29 +437,28 @@ export function bootstrap(targetDir, pkgDir) {
     skipped.push(tuiPatch.configPath);
   }
 
-  // 4. Blocker command templates (blockers.*.md only).
-  const srcCommandsDir  = join(pkgDir, ".opencode", "commands");
-  const destCommandsDir = join(targetDir, ".opencode", "commands");
-  const commandFiles = [
+  // 4. Seed command markdown files so OpenCode can find them for server-side
+  //    slash command dispatch (api.client.session.command()).
+  //    For the global config dir, OpenCode scans commands/ at the root.
+  //    For project installs, commands live under .opencode/commands/.
+  //    Use copyIfMissing so user edits are never overwritten.
+  const commandsSrc = join(pkgDir, ".opencode", "commands");
+  const commandsDest = isOpenCodeGlobalConfigDir(targetDir)
+    ? join(targetDir, "commands")
+    : join(targetDir, ".opencode", "commands");
+
+  const BLOCKER_COMMANDS = [
     "blockers.on.md",
     "blockers.off.md",
     "blockers.status.md",
     "blockers.list.md",
     "blockers.clarify.md",
   ];
-  for (const file of commandFiles) {
-    const src  = join(srcCommandsDir, file);
-    const dest = join(destCommandsDir, file);
-    if (!existsSync(src)) {
-      skipped.push(dest);
-      continue;
-    }
-    // Command files are plugin-owned; always overwrite so updates are applied.
-    const wrote = copyAlways(src, dest);
-    if (wrote) {
-      written.push(dest);
-    } else {
-      skipped.push(dest);
+  for (const file of BLOCKER_COMMANDS) {
+    const src = join(commandsSrc, file);
+    const dest = join(commandsDest, file);
+    if (existsSync(src)) {
+      record(dest, copyIfMissing(src, dest));
     }
   }
 

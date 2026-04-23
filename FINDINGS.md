@@ -401,3 +401,39 @@ Evidence from log (`2026-04-23T183831.log`):
 - `session.command` payload requires `arguments` as a string in this runtime path; send `arguments: ""` for no-arg commands to avoid `invalid_type` errors.
 - TUI bridge now sends bare command + empty arguments + `throwOnError: true`, and parses structured SDK errors via `error.data.message` so toasts are actionable.
 - Reverted duplicate global command seeding; blocker templates remain sourced from `.opencode/commands` to avoid duplicate command entries.
+
+---
+
+## Duplicate Slash Commands Fix (2026-04-24)
+
+### Symptom
+Typing `/bl` in the chat prompt showed each blocker command **twice** in the autocomplete dropdown (e.g., `/blockers.on` appeared two times).
+
+### Root cause — two sources feeding slash autocomplete with no dedup
+
+OpenCode has **two completely separate command systems**:
+
+1. **Ctrl+P palette** (`dialog-command.tsx`): Shows ONLY `api.command.register()` entries from TUI plugins. `.md` files are never shown here.
+2. **Slash autocomplete** (`autocomplete.tsx:359-376`): Merges two sources with **no deduplication**:
+   - `command.slashes()` — TUI-registered commands that have a `slash: { name: ... }` field set
+   - `sync.data.command` — backend `.md` file commands
+
+`tui.ts` (at v0.2.6) had `slash: { name: "blockers.on" }` etc. on all 5 `api.command.register()` calls. This caused each command to appear once from TUI (`command.slashes()`) and once from the `.md` file (`sync.data.command`).
+
+### Fix applied
+
+Removed the `slash` field from all 5 `api.command.register()` calls in `tui.ts`.
+
+- TUI-registered commands now appear **only in Ctrl+P palette** (their natural home).
+- `.md` files exclusively own the slash autocomplete entries.
+- `execServerCommand` flow is unaffected — `.md` files still exist and `session.command()` dispatch still works.
+
+### Why `.md` files must be kept
+
+`session.command()` (used by `execServerCommand` in `tui.ts`) requires the command to exist in `sync.data.command`, i.e., have a `.md` file backing it. Without the `.md` file, the call returns "Command not found: blockers.on".
+
+### Verification
+- `bun test` → **455 pass, 0 fail**
+- `bun run build` → success, `dist/tui.js` rebuilt
+- `cd /var/www/opencode-config && npm install /var/www/opencode-blocker-diverter` → deployed
+- After OpenCode restart: `/bl` autocomplete shows each command exactly once.

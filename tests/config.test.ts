@@ -369,6 +369,92 @@ describe('loadConfig', () => {
     globalThis.Bun.file = originalBunFile
   })
 
+  it('should resolve user config blockersFile against projectDir when projectDir is not "/"', async () => {
+    // Non-root case: user config relative paths must resolve against projectDir,
+    // NOT against userConfigDir (regression guard for the root-safety fix).
+    const userConfigDir = join(homedir(), '.config', 'opencode')
+    const userConfigPathLocal = join(userConfigDir, 'blocker-diverter.json')
+    const originalBunFile = globalThis.Bun.file
+
+    globalThis.Bun.file = ((path: string) => {
+      if (path === userConfigPathLocal) {
+        return {
+          exists: () => Promise.resolve(true),
+          text: () => Promise.resolve(JSON.stringify({
+            blockersFile: './BLOCKERS.md',
+          })),
+        }
+      }
+      // project config does not exist
+      return {
+        exists: () => Promise.resolve(false),
+        text: () => Promise.reject(new Error('ENOENT')),
+      }
+    }) as any
+
+    const config = await loadConfig(mockProjectDir) // mockProjectDir = '/test/project'
+
+    // Must resolve against projectDir, not userConfigDir
+    expect(config.blockersFile).toBe(resolve(mockProjectDir, './BLOCKERS.md'))
+    expect(config.blockersFile).not.toBe(resolve(userConfigDir, './BLOCKERS.md'))
+
+    globalThis.Bun.file = originalBunFile
+  })
+
+  it('should resolve user config blockersFile against user config dir, not projectDir', async () => {
+    // When worktree='/' (global config install), user config paths must NOT
+    // resolve to '/BLOCKERS.md' (EACCES). They must resolve against userConfigDir.
+    const rootProjectDir = '/'
+    const userConfigDir = join(homedir(), '.config', 'opencode')
+    const userConfigPath = join(userConfigDir, 'blocker-diverter.json')
+    const originalBunFile = globalThis.Bun.file
+
+    globalThis.Bun.file = ((path: string) => {
+      if (path === userConfigPath) {
+        return {
+          exists: () => Promise.resolve(true),
+          text: () => Promise.resolve(JSON.stringify({
+            blockersFile: './BLOCKERS.md',
+          })),
+        }
+      }
+      // project config for '/' does not exist
+      return {
+        exists: () => Promise.resolve(false),
+        text: () => Promise.reject(new Error('ENOENT')),
+      }
+    }) as any
+
+    const config = await loadConfig(rootProjectDir)
+
+    // blockersFile must NOT be '/BLOCKERS.md'
+    expect(config.blockersFile).not.toBe('/BLOCKERS.md')
+    // Must be resolved against userConfigDir
+    expect(config.blockersFile).toBe(resolve(userConfigDir, './BLOCKERS.md'))
+
+    globalThis.Bun.file = originalBunFile
+  })
+
+  it('should resolve default blockersFile against userConfigDir when projectDir is "/"', async () => {
+    const rootProjectDir = '/'
+    const userConfigDir = join(homedir(), '.config', 'opencode')
+    const originalBunFile = globalThis.Bun.file
+
+    globalThis.Bun.file = (() => ({
+      exists: () => Promise.resolve(false),
+      text: () => Promise.reject(new Error('ENOENT')),
+    })) as any
+
+    const config = await loadConfig(rootProjectDir)
+
+    // Default blockersFile must NOT resolve to '/BLOCKERS.md'
+    expect(config.blockersFile).not.toBe('/BLOCKERS.md')
+    // Must be in userConfigDir
+    expect(config.blockersFile).toBe(resolve(userConfigDir, './BLOCKERS.md'))
+
+    globalThis.Bun.file = originalBunFile
+  })
+
   it('should handle Zod validation failure gracefully', async () => {
     const originalBunFile = globalThis.Bun.file
     
