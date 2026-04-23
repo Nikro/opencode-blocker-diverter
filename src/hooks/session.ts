@@ -154,6 +154,32 @@ export function createSessionHooks(ctx: Parameters<Plugin>[0]) {
             await handleMessageUpdated(loggingClient, properties)
             break
 
+          case 'question.asked': {
+            // Auto-reject questions when blocker diverter is active so the AI
+            // never shows a UI picker to the user during autonomous mode.
+            // sessionID for question events lives in properties.sessionID.
+            const questionSessionId = properties?.sessionID as string | undefined
+            const requestID = properties?.id as string | undefined
+            if (requestID && questionSessionId) {
+              const questionState = getState(questionSessionId)
+              if (questionState.divertBlockers) {
+                try {
+                  await (client as any).question.reject({ requestID })
+                  await logInfo(loggingClient, 'Auto-rejected question in autonomous mode', {
+                    requestID,
+                    sessionID: questionSessionId
+                  })
+                } catch (err) {
+                  await logError(loggingClient, 'Failed to auto-reject question', err as Error, {
+                    requestID,
+                    sessionID: questionSessionId
+                  })
+                }
+              }
+            }
+            break
+          }
+
           default:
             // Silently ignore unknown event types
             await logDebug(loggingClient, `Unknown session event type: ${type}`, { event })
