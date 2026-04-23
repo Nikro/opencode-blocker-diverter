@@ -2,9 +2,48 @@
 
 **Project**: OpenCode plugin for autonomous session management  
 **Type**: TypeScript plugin extending OpenCode's hook system  
-**Status**: In development (v0.1.0 pre-release)
+**Status**: In development (v0.2.1)
 
-⚠️ **IMPORTANT**: If implementation deviates from this guide, update this file immediately to reflect reality.
+## 🚨 READ FIRST — Before Touching Anything
+
+> See `FINDINGS.md` for full diagnosis. TL;DR for new agents:
+
+**THE PLUGIN WAS NOT LOADING FOR 2-3 DAYS.** Root cause confirmed + fixed 2026-04-23.
+
+### Root cause
+`tui.jsonc` used bare spec `"opencode-blocker-diverter"` → OpenCode resolved from its **own npm cache** at `~/.cache/opencode/packages/` (NOT from project `node_modules`). That cache had v0.1.0 (no `dist/tui.js`) → TUI plugin silently skipped.
+
+### Fix applied
+1. Switched to **path spec**: `"./node_modules/opencode-blocker-diverter"` in both `tui.jsonc` and `opencode.jsonc`
+2. Installed local dev package: `cd /var/www/opencode-config && npm install /var/www/opencode-blocker-diverter`
+3. Deleted stale cache: `rm -rf ~/.cache/opencode/packages/opencode-blocker-diverter@latest`
+
+### NEVER use bare npm specs in OpenCode config files
+Bare specs hit OpenCode's private cache which may be arbitrarily stale and is NOT updated by `npm update`.
+
+### Verification commands (run these, don't guess)
+```bash
+# After any change — verify module loads correctly
+cd /var/www/opencode-blocker-diverter && bun run verify
+
+# After OpenCode restart — confirm TUI loaded
+grep -i "blocker\|tui.plugin" $(ls -t ~/.local/share/opencode/log/*.log | head -1)
+
+# Expected success line:
+# INFO service=tui.plugin id=opencode-blocker-diverter loading tui plugin
+
+# Failure line meaning something is still broken:
+# WARN service=tui.plugin ... tui plugin has no entrypoint
+```
+
+### Development loop
+```bash
+bun run build                                        # rebuild after code changes
+cd /var/www/opencode-config && npm install /var/www/opencode-blocker-diverter  # update install
+# restart OpenCode, check logs
+```
+
+⚠️ **IMPORTANT**: If implementation deviates from this guide, update this file AND `FINDINGS.md` immediately.
 
 ## What We're Building
 

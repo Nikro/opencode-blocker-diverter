@@ -12,6 +12,16 @@
 
 import type { LogClient } from '../config'
 
+function emitLog(
+  client: LogClient,
+  logOptions: { service: string; level: string; message: string; extra?: Record<string, unknown> }
+): void {
+  // Never block plugin flow on logging I/O.
+  void Promise.resolve(client.app!.log!(logOptions)).catch(() => {
+    // Intentionally ignore logging transport failures.
+  })
+}
+
 /**
  * Log info message via OpenCode client
  * 
@@ -54,7 +64,7 @@ export async function logInfo(
       logOptions.extra = extra
     }
 
-    await client.app.log(logOptions)
+    emitLog(client, logOptions)
   } catch {
     // Silently fail if logging service is unavailable
     // Prevents logging failures from breaking plugin functionality
@@ -103,7 +113,7 @@ export async function logWarn(
       logOptions.extra = extra
     }
 
-    await client.app.log(logOptions)
+    emitLog(client, logOptions)
   } catch {
     // Silently fail if logging service is unavailable
   }
@@ -173,7 +183,7 @@ export async function logError(
       logOptions.extra = combinedExtra
     }
 
-    await client.app.log(logOptions)
+    emitLog(client, logOptions)
   } catch {
     // Silently fail if logging service is unavailable
   }
@@ -223,7 +233,7 @@ export async function logDebug(
       logOptions.extra = extra
     }
 
-    await client.app.log(logOptions)
+    emitLog(client, logOptions)
   } catch {
     // Silently fail if logging service is unavailable
   }

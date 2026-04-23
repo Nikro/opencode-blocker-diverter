@@ -5,6 +5,20 @@ All notable changes to the Blocker Diverter plugin will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-04-23
+
+### Fixed
+- **TUI plugin not loading**: Resolved a silent loading failure caused by OpenCode resolving bare npm package specs (e.g. `"opencode-blocker-diverter"`) from its private cache at `~/.cache/opencode/packages/`, which held a stale v0.1.0 with no `dist/tui.js`. Switched both `opencode.jsonc` and `tui.jsonc` to path specs (`"./node_modules/opencode-blocker-diverter"`) so the locally installed package is always used.
+- **Non-blocking logging**: `src/utils/logging.ts` — fire-and-forget log calls no longer block the hot path in hook handlers.
+
+### Added
+- **`tests/tui-commands.test.ts`**: 22 unit tests covering TUI command registration, subcommand routing (`/blockers on|off|status|list`), and edge cases.
+- **`scripts/verify-plugin.sh`**: 4-check verification script confirming build output exists, entry points are valid ESM, and the plugin loads without errors.
+- **`bun run verify`** npm script: runs `tests/tui-commands.test.ts` followed by `scripts/verify-plugin.sh` as a single pre-publish sanity check.
+- **`FINDINGS.md`**: Survival document capturing the root cause analysis of the 2-3 day plugin loading failure, fix steps, and verification commands — preserved across agent compactions.
+
+---
+
 ## [0.1.0] - 2026-02-14
 
 ### Added
