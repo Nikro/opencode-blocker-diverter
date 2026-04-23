@@ -388,3 +388,16 @@ Evidence from log (`2026-04-23T183831.log`):
 - Default behavior switched back to **manual opt-in**: `defaultDivertBlockers=false` in live config.
 - Postinstall now also auto-creates `<targetDir>/blocker-diverter.json` (if missing), in addition to `.opencode/blocker-diverter.json`.
 - Root config is created with safe defaults and never overwrites existing user edits.
+
+### TUI false-positive status root cause (2026-04-23 night)
+- `api.client.session.command()` in TUI uses SDK v2 `RequestResult` semantics and does **not throw by default** (`throwOnError=false`).
+- TUI `execServerCommand()` previously treated any resolved promise as success, so local KV was set to enabled even when server command was rejected/no-op.
+- Fix applied in `tui.ts`: call `api.client.session.command(..., { throwOnError: true })`.
+- Result: if `/blockers.on` fails server-side, TUI now shows error toast and does not mark session enabled locally.
+
+### Command lookup nuance discovered (same incident)
+- `session.command` expects the **bare command name** (`blockers.on`), not slash-prefixed (`/blockers.on`).
+- `command.execute.before` runs only **after** command lookup succeeds, so missing-command failures show no `command.execute.before` logs.
+- `session.command` payload requires `arguments` as a string in this runtime path; send `arguments: ""` for no-arg commands to avoid `invalid_type` errors.
+- TUI bridge now sends bare command + empty arguments + `throwOnError: true`, and parses structured SDK errors via `error.data.message` so toasts are actionable.
+- Reverted duplicate global command seeding; blocker templates remain sourced from `.opencode/commands` to avoid duplicate command entries.

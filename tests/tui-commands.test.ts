@@ -40,7 +40,7 @@ function buildMockApi(routeOverride?: RouteState) {
   const kvStore = new Map<string, unknown>();
   const commandCbs: Array<() => TuiCommand[]> = [];
   const disposers: Array<() => void> = [];
-  const serverCommands: Array<{ sessionID: string; command: string }> = [];
+  const serverCommands: Array<{ sessionID: string; command: string; arguments?: string; throwOnError?: boolean }> = [];
 
   const mockApi = {
     command: {
@@ -80,8 +80,11 @@ function buildMockApi(routeOverride?: RouteState) {
     client: {
       session: {
         command: mock(
-          async (opts: { sessionID: string; command: string }) => {
-            serverCommands.push(opts);
+          async (
+            opts: { sessionID: string; command: string; arguments?: string },
+            reqOptions?: { throwOnError?: boolean },
+          ) => {
+            serverCommands.push({ ...opts, throwOnError: reqOptions?.throwOnError });
           }
         ),
       },
@@ -248,7 +251,9 @@ describe("dist/tui.js — active session behaviour", () => {
     const onCmd = getRegisteredCommands().find((c) => c.value === "blockers.on")!;
     await onCmd.onSelect?.();
 
-    expect(serverCommands).toEqual([{ sessionID: "test-session-id", command: "blockers.on" }]);
+    expect(serverCommands).toEqual([
+      { sessionID: "test-session-id", command: "blockers.on", arguments: "", throwOnError: true },
+    ]);
     const successToast = toasts.find(
       (t) => (t as Record<string, unknown>).variant === "success"
     );
@@ -263,6 +268,7 @@ describe("dist/tui.js — active session behaviour", () => {
     await offCmd.onSelect?.();
 
     expect(serverCommands[0]?.command).toBe("blockers.off");
+    expect(serverCommands[0]?.arguments).toBe("");
   });
 
   it("blockers.list sends 'blockers.list' server command", async () => {
@@ -273,6 +279,7 @@ describe("dist/tui.js — active session behaviour", () => {
     await listCmd.onSelect?.();
 
     expect(serverCommands[0]?.command).toBe("blockers.list");
+    expect(serverCommands[0]?.arguments).toBe("");
   });
 
   it("api.lifecycle.onDispose is called with the unregister function", async () => {
@@ -304,5 +311,24 @@ describe("dist/tui.js — server error handling", () => {
     expect(errToast).toBeDefined();
     const msg = (errToast as Record<string, unknown>).message as string;
     expect(msg).toContain("connection refused");
+  });
+
+  it("surfaces structured object errors without [object Object]", async () => {
+    const { mockApi, toasts, getRegisteredCommands } = buildMockApi();
+    mockApi.client.session.command = mock(async () => {
+      throw { data: { message: "Command not found: blockers.on" } };
+    });
+
+    await plugin.tui(mockApi as never, {}, {});
+
+    const onCmd = getRegisteredCommands().find((c) => c.value === "blockers.on")!;
+    await expect(onCmd.onSelect?.()).resolves.toBeUndefined();
+
+    const errToast = toasts.find(
+      (t) => (t as Record<string, unknown>).variant === "error"
+    ) as Record<string, unknown> | undefined;
+    expect(errToast).toBeDefined();
+    expect(String(errToast?.message)).toContain("Command not found: blockers.on");
+    expect(String(errToast?.message)).not.toContain("[object Object]");
   });
 });

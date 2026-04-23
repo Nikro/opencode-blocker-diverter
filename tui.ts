@@ -8,6 +8,39 @@ import type { TuiPlugin, TuiPluginModule } from "@opencode-ai/plugin/tui";
 const KV_PREFIX = "blocker:";
 
 const tui: TuiPlugin = async (api, _options, _meta) => {
+  const formatError = (err: unknown): string => {
+    if (err instanceof Error && err.message) return err.message;
+    if (typeof err === "string") return err;
+    if (err && typeof err === "object") {
+      const e = err as {
+        message?: unknown;
+        data?: { message?: unknown };
+        error?: { message?: unknown; detail?: unknown };
+        body?: { message?: unknown; error?: { message?: unknown } };
+      };
+      const candidates = [
+        e.message,
+        e.data?.message,
+        e.error?.message,
+        e.error?.detail,
+        e.body?.message,
+        e.body?.error?.message,
+      ];
+      for (const candidate of candidates) {
+        if (typeof candidate === "string" && candidate.trim().length > 0) {
+          return candidate;
+        }
+      }
+      try {
+        const asJson = JSON.stringify(err);
+        if (asJson && asJson !== "{}") return asJson;
+      } catch {
+        // ignore stringify errors, fall through to String(err)
+      }
+    }
+    return String(err);
+  };
+
   const getSessionID = (): string | null => {
     const route = api.route.current;
     if (route.name !== "session") return null;
@@ -43,9 +76,12 @@ const tui: TuiPlugin = async (api, _options, _meta) => {
     command: string,
   ): Promise<void> => {
     try {
-      await api.client.session.command({ sessionID, command });
+      await api.client.session.command(
+        { sessionID, command, arguments: "" },
+        { throwOnError: true },
+      );
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = formatError(err);
       api.ui.toast({
         variant: "error",
         title: "Blocker Diverter",

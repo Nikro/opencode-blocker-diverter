@@ -5,6 +5,18 @@ All notable changes to the Blocker Diverter plugin will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-04-23
+
+### Fixed
+- **TUI command execution reliability**: `tui.ts` now calls `api.client.session.command()` with `{ throwOnError: true }` and sends `arguments: ""` for no-arg commands, preventing false-positive local enablement when server command execution fails.
+- **Actionable TUI error surfacing**: Added structured SDK error extraction (including nested `error.data.message`) so command failures show readable toasts instead of opaque object output.
+
+### Changed
+- **Command bridge behavior**: Removed slash-prefixed fallback behavior and standardized on bare command dispatch (`blockers.on|off|status|list`) to align with runtime command lookup semantics.
+
+### Added
+- **Regression coverage for command bridge errors**: Extended `tests/tui-commands.test.ts` to assert `arguments`/`throwOnError` payloads and verify structured object errors are rendered as readable messages.
+
 ## [0.2.5] - 2026-04-23
 
 ### Fixed
