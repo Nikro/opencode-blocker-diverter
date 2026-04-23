@@ -333,9 +333,11 @@ describe('loadConfig', () => {
 
     expect(mockClient.app.log).toHaveBeenCalledWith(
       expect.objectContaining({
-        level: 'info',
-        message: expect.stringContaining('Loaded config from'),
-        service: 'blocker-diverter',
+        body: expect.objectContaining({
+          level: 'info',
+          message: expect.stringContaining('Loaded config from'),
+          service: 'blocker-diverter',
+        })
       })
     )
 

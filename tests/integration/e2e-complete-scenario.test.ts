@@ -116,12 +116,13 @@ describe('E2E: Complete User Scenario', () => {
     const statusLog = mockContext.client.app.log.mock.calls.find(
       (call: unknown[]) => {
         const arg = call[0] as Record<string, unknown>
-        return typeof arg?.message === 'string' && arg.message.includes('Status')
+        const body = arg?.body as Record<string, unknown> | undefined
+        return typeof body?.message === 'string' && body.message.includes('Status') && !body.message.startsWith('[BD]')
       }
     )
     expect(statusLog).toBeDefined()
-    expect((statusLog![0] as Record<string, unknown>).message).toContain('enabled')
-    expect((statusLog![0] as Record<string, unknown>).message).toContain('1/50')
+    expect(((statusLog![0] as Record<string, unknown>).body as Record<string, unknown>).message).toContain('enabled')
+    expect(((statusLog![0] as Record<string, unknown>).body as Record<string, unknown>).message).toContain('1/50')
 
     // Step 7: User runs /blockers list → AI template should handle it
     // /blockers.list is NOT intercepted by the command hook, so it passes through

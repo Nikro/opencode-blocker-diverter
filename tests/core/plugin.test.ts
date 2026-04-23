@@ -221,7 +221,9 @@ describe('createPlugin', () => {
       // Should have logged status message
       expect(logSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: expect.stringContaining('Blocker Diverter Status')
+          body: expect.objectContaining({
+            message: expect.stringContaining('Blocker Diverter Status')
+          })
         })
       )
       
@@ -252,7 +254,9 @@ describe('createPlugin', () => {
       // Should have logged enable message
       expect(logSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: expect.stringContaining('enabled')
+          body: expect.objectContaining({
+            message: expect.stringContaining('enabled')
+          })
         })
       )
       
@@ -281,7 +285,9 @@ describe('createPlugin', () => {
       // Should have logged disable message
       expect(logSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: expect.stringContaining('disabled')
+          body: expect.objectContaining({
+            message: expect.stringContaining('disabled')
+          })
         })
       )
       
@@ -332,9 +338,10 @@ describe('createPlugin', () => {
         sessionID: 'test-session'
       } as any, output)
       
-      // Should not have logged anything (except the debug log from hook itself)
+      // Should not have logged anything (except the debug log from hook itself and BD diagnostics)
       const commandLogs = logSpy.mock.calls.filter((call: any) => 
-        !call[0]?.message?.includes('command.execute.before hook fired')
+        !call[0]?.message?.includes('command.execute.before hook fired') &&
+        !call[0]?.body?.message?.startsWith('[BD]')
       )
       expect(commandLogs).toHaveLength(0)
       

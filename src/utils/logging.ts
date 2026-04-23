@@ -17,7 +17,8 @@ function emitLog(
   logOptions: { service: string; level: string; message: string; extra?: Record<string, unknown> }
 ): void {
   // Never block plugin flow on logging I/O.
-  void Promise.resolve(client.app!.log!(logOptions)).catch(() => {
+  // SDK expects { body: {...} } wrapper — not a bare options object.
+  void Promise.resolve(client.app!.log!({ body: logOptions })).catch(() => {
     // Intentionally ignore logging transport failures.
   })
 }

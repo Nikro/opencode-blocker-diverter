@@ -329,3 +329,62 @@ ls ~/.cache/opencode/packages/ | grep blocker
 rm -rf ~/.cache/opencode/packages/opencode-blocker-diverter*
 cd /var/www/opencode-config && npm install /var/www/opencode-blocker-diverter
 ```
+
+---
+
+## Autonomous Toggle Regression + Fix (2026-04-23 evening)
+
+### Symptom
+- TUI showed **"Currently ENABLED"**, but question picker still appeared.
+- `[BD] getState ... divertBlockers=false` in the UI/log stream during active session.
+
+### Confirmed root cause
+`chat.message` auto-disable logic was too aggressive: it disabled `divertBlockers` on **any** user message.
+
+In OpenCode, the very first task prompt is a user message, so flow was:
+1. `session.created` set `divertBlockers=true` (from config), then
+2. first user message immediately flipped it back to `false`, then
+3. `tool.execute.before` saw `divert=false`, so `question` tool passed through.
+
+Evidence from log (`2026-04-23T183831.log`):
+- `[BD] session.created: initializing state, defaultDivertBlockers=true`
+- `[BD] session.created: DONE, divertBlockers=true`
+- `[BD] chat.message: auto-disabling divertBlockers (was true, user sent message)`
+- later: `[BD] tool.execute.before fired: tool=question ... divert=false`
+
+### Changes applied
+
+1. **Initial-prompt guard in `chat.message`** (`src/hooks/session.ts`)
+   - Auto-disable now triggers only for likely manual takeover:
+     - assistant already responded (`lastMessageContent` non-empty), or
+     - reprompt cycle already running (`repromptCount > 0`), or
+     - blockers already logged (`blockers.length > 0`).
+   - For the initial user task prompt, plugin now preserves autonomous mode.
+
+2. **Global config file added for this runtime layout**
+   - Added `/var/www/opencode-config/blocker-diverter.json` with:
+     - `"enabled": true`
+     - `"defaultDivertBlockers": true`
+   - Needed because plugin runtime `worktree` resolved to `/`, so project-local `.opencode/blocker-diverter.json` was not the source used at startup in this environment.
+
+3. **Regression test added**
+   - `tests/hooks/session-continue.test.ts`
+   - New test: `does not auto-disable on initial user prompt in autonomous mode`.
+
+### Verification
+- `bun test` → **429 pass, 0 fail**
+- `bun run build` → success
+- `cd /var/www/opencode-config && npm install /var/www/opencode-blocker-diverter` → updated install
+- Runtime behavior now matches expectation:
+  - autonomous mode stays on for initial task prompt,
+  - question interception works when enabled,
+  - `/blockers.off` returns normal behavior (no autonomous continue nudge).
+
+### Note on noisy UI logs
+- Temporary `[BD]` diagnostics + `getState` `console.error` spam can visually pollute TUI.
+- Keep until final stabilization; then remove/reduce high-volume debug lines.
+
+### Follow-up change (same day)
+- Default behavior switched back to **manual opt-in**: `defaultDivertBlockers=false` in live config.
+- Postinstall now also auto-creates `<targetDir>/blocker-diverter.json` (if missing), in addition to `.opencode/blocker-diverter.json`.
+- Root config is created with safe defaults and never overwrites existing user edits.

@@ -323,15 +323,15 @@ describe("System Prompt Hook", () => {
       
       expect(logMock).toHaveBeenCalled()
       const logCall = logMock.mock.calls.find((call: unknown[]) => {
-        const arg = call[0] as { level?: string; message?: string; extra?: Record<string, unknown> }
-        return arg.level === "debug" && arg.message?.includes("Injected")
+        const arg = call[0] as { body?: { level?: string; message?: string } }
+        return arg.body?.level === "debug" && arg.body?.message?.includes("Injected")
       })
       
       expect(logCall).toBeDefined()
-      const logArg = logCall?.[0] as { extra?: { sessionId?: string; modelId?: string; templateLength?: number } }
-      expect(logArg.extra?.sessionId).toBe(testSessionId)
-      expect(logArg.extra?.modelId).toBe("gpt-4-turbo")
-      expect(logArg.extra?.templateLength).toBeGreaterThan(0)
+      const logArg = logCall?.[0] as { body?: { extra?: { sessionId?: string; modelId?: string; templateLength?: number } } }
+      expect(logArg.body?.extra?.sessionId).toBe(testSessionId)
+      expect(logArg.body?.extra?.modelId).toBe("gpt-4-turbo")
+      expect(logArg.body?.extra?.templateLength).toBeGreaterThan(0)
     })
 
     it("should handle template generation errors gracefully", async () => {
@@ -357,12 +357,12 @@ describe("System Prompt Hook", () => {
       
       // Should log error (not throw)
       const errorLog = logMock.mock.calls.find((call: unknown[]) => {
-        const arg = call[0] as { level?: string; message?: string }
-        return arg.level === "error"
+        const arg = call[0] as { body?: { level?: string; message?: string } }
+        return arg.body?.level === "error"
       })
       
       expect(errorLog).toBeDefined()
-      expect((errorLog?.[0] as { message?: string }).message).toContain("Failed to inject system prompt")
+      expect((errorLog?.[0] as { body?: { message?: string } }).body?.message).toContain("Failed to inject system prompt")
     })
   })
 

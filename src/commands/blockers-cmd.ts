@@ -54,11 +54,13 @@ export async function handleOnCommand(
   client: LogClient | undefined
 ): Promise<CommandResult> {
   const wasDiverted = state.divertBlockers
+  void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleOnCommand: CALLED, state.divertBlockers was=${wasDiverted} now setting to TRUE` } }).catch(() => {})
   state.divertBlockers = true
   // Prevent chat.message from auto-disabling due to the command's user message
   state.ignoreNextUserMessage = true
   // Reset reprompt time so the cooldown starts now, preventing immediate reprompting
   state.lastRepromptTime = Date.now()
+  void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleOnCommand: DONE, state.divertBlockers=${state.divertBlockers}` } }).catch(() => {})
   
   await logInfo(
     client,
@@ -96,6 +98,7 @@ export async function handleOffCommand(
   client: LogClient | undefined
 ): Promise<CommandResult> {
   const wasDiverted = state.divertBlockers
+  void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleOffCommand: CALLED, setting divertBlockers=FALSE (was=${wasDiverted})` } }).catch(() => {})
   state.divertBlockers = false
   // Prevent chat.message from triggering auto-disable logic for the command's user message
   state.ignoreNextUserMessage = true

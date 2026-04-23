@@ -436,6 +436,11 @@ describe("bootstrap", () => {
 
     // blocker config
     expect(existsSync(join(tmpRoot, ".opencode", "blocker-diverter.json"))).toBe(true);
+    // root-level blocker config
+    expect(existsSync(join(tmpRoot, "blocker-diverter.json"))).toBe(true);
+    const rootCfg = JSON.parse(readFileSync(join(tmpRoot, "blocker-diverter.json"), "utf8")) as Record<string, unknown>;
+    expect(rootCfg.enabled).toBe(true);
+    expect(rootCfg.defaultDivertBlockers).toBe(false);
     // tui config for Ctrl+P plugin runtime
     expect(existsSync(join(tmpRoot, ".opencode", "tui.jsonc"))).toBe(true);
     const tuiParsed = JSON.parse(readFileSync(join(tmpRoot, ".opencode", "tui.jsonc"), "utf8")) as Record<string, unknown>;
@@ -479,6 +484,16 @@ describe("bootstrap", () => {
     const parsed = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
     expect(parsed.enabled).toBe(false);
     expect(parsed.custom).toBe(true);
+  });
+
+  it("does not overwrite existing root blocker-diverter.json on re-run", () => {
+    writeFileSync(join(tmpRoot, "package.json"), JSON.stringify({ name: "my-app" }));
+    const rootCfgPath = join(tmpRoot, "blocker-diverter.json");
+    writeFileSync(rootCfgPath, JSON.stringify({ enabled: false, custom: "user-value" }));
+    bootstrap(tmpRoot, pkgDir);
+    const parsed = JSON.parse(readFileSync(rootCfgPath, "utf8")) as Record<string, unknown>;
+    expect(parsed.enabled).toBe(false);
+    expect(parsed.custom).toBe("user-value");
   });
 
   it("patches existing opencode.jsonc non-destructively", () => {

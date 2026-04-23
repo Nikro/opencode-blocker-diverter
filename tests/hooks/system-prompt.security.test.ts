@@ -455,12 +455,12 @@ describe("System Prompt Hook - Security & Injection Prevention", () => {
       
       // Should log error (not throw)
       const errorLog = logMock.mock.calls.find((call: unknown[]) => {
-        const arg = call[0] as { level?: string; message?: string }
-        return arg.level === "error"
+        const arg = call[0] as { body?: { level?: string; message?: string } }
+        return arg.body?.level === "error"
       })
       
       expect(errorLog).toBeDefined()
-      expect((errorLog?.[0] as { message?: string }).message).toContain("Failed to inject system prompt")
+      expect((errorLog?.[0] as { body?: { message?: string } }).body?.message).toContain("Failed to inject system prompt")
       
       // CRITICAL: System prompt should remain unchanged when template fails
       expect(output.system).toHaveLength(initialSystemLength)

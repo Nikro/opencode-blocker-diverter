@@ -660,6 +660,27 @@ describe('Chat Message - Auto-disable NOT triggered by injected continuation pro
     expect(getState(testSessionId).divertBlockers).toBe(false)
   })
 
+  it('does not auto-disable on initial user prompt in autonomous mode', async () => {
+    const hooks = createSessionHooks(mockContext)
+
+    const state = getState(testSessionId)
+    state.divertBlockers = true
+    state.repromptCount = 0
+    state.lastRepromptTime = 0
+    state.blockers = []
+    state.lastMessageContent = ''
+
+    await hooks['chat.message']?.(
+      { sessionID: testSessionId },
+      {
+        message: { role: 'user' },
+        parts: [{ type: 'text', text: 'Build feature X end-to-end' }]
+      }
+    )
+
+    expect(getState(testSessionId).divertBlockers).toBe(true)
+  })
+
   it('clears ignoreNextUserMessage when promptAsync fails', async () => {
     const errorCtx = {
       ...mockContext,

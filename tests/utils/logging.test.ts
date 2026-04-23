@@ -27,11 +27,11 @@ describe('utils/logging', () => {
       await logInfo(client, 'Test info message')
 
       expect(mockLog).toHaveBeenCalledTimes(1)
-      expect(mockLog).toHaveBeenCalledWith({
+      expect(mockLog).toHaveBeenCalledWith({ body: {
         service: 'blocker-diverter',
         level: 'info',
         message: 'Test info message'
-      })
+      } })
     })
 
     it('should include extra context when provided', async () => {
@@ -43,12 +43,12 @@ describe('utils/logging', () => {
       await logInfo(client, 'Info with context', { sessionId: 'abc123', count: 5 })
 
       expect(mockLog).toHaveBeenCalledTimes(1)
-      expect(mockLog).toHaveBeenCalledWith({
+      expect(mockLog).toHaveBeenCalledWith({ body: {
         service: 'blocker-diverter',
         level: 'info',
         message: 'Info with context',
         extra: { sessionId: 'abc123', count: 5 }
-      })
+      } })
     })
 
     it('should not fail when client is undefined', async () => {
@@ -85,11 +85,11 @@ describe('utils/logging', () => {
       await logWarn(client, 'Test warning message')
 
       expect(mockLog).toHaveBeenCalledTimes(1)
-      expect(mockLog).toHaveBeenCalledWith({
+      expect(mockLog).toHaveBeenCalledWith({ body: {
         service: 'blocker-diverter',
         level: 'warn',
         message: 'Test warning message'
-      })
+      } })
     })
 
     it('should include extra context when provided', async () => {
@@ -101,12 +101,12 @@ describe('utils/logging', () => {
       await logWarn(client, 'Warn with context', { path: '/test/path', reason: 'invalid' })
 
       expect(mockLog).toHaveBeenCalledTimes(1)
-      expect(mockLog).toHaveBeenCalledWith({
+      expect(mockLog).toHaveBeenCalledWith({ body: {
         service: 'blocker-diverter',
         level: 'warn',
         message: 'Warn with context',
         extra: { path: '/test/path', reason: 'invalid' }
-      })
+      } })
     })
 
     it('should not fail when client is undefined', async () => {
@@ -133,11 +133,11 @@ describe('utils/logging', () => {
       await logError(client, 'Test error message')
 
       expect(mockLog).toHaveBeenCalledTimes(1)
-      expect(mockLog).toHaveBeenCalledWith({
+      expect(mockLog).toHaveBeenCalledWith({ body: {
         service: 'blocker-diverter',
         level: 'error',
         message: 'Test error message'
-      })
+      } })
     })
 
     it('should include error details when error provided', async () => {
@@ -153,7 +153,7 @@ describe('utils/logging', () => {
 
       expect(mockLog).toHaveBeenCalledTimes(1)
       expect(mockLog).toHaveBeenCalledWith(
-        expect.objectContaining({
+        { body: expect.objectContaining({
           service: 'blocker-diverter',
           level: 'error',
           message: 'Operation failed',
@@ -161,7 +161,7 @@ describe('utils/logging', () => {
             error: 'Something went wrong',
             stack: 'Error: Something went wrong\n  at test.ts:10:5'
           })
-        })
+        }) }
       )
     })
 
@@ -176,7 +176,7 @@ describe('utils/logging', () => {
 
       expect(mockLog).toHaveBeenCalledTimes(1)
       expect(mockLog).toHaveBeenCalledWith(
-        expect.objectContaining({
+        { body: expect.objectContaining({
           service: 'blocker-diverter',
           level: 'error',
           message: 'Read failed',
@@ -186,7 +186,7 @@ describe('utils/logging', () => {
             path: '/test/file.txt',
             attempt: 1
           })
-        })
+        }) }
       )
     })
 
@@ -199,12 +199,12 @@ describe('utils/logging', () => {
       await logError(client, 'Operation failed', undefined, { sessionId: 'xyz789' })
 
       expect(mockLog).toHaveBeenCalledTimes(1)
-      expect(mockLog).toHaveBeenCalledWith({
+      expect(mockLog).toHaveBeenCalledWith({ body: {
         service: 'blocker-diverter',
         level: 'error',
         message: 'Operation failed',
         extra: { sessionId: 'xyz789' }
-      })
+      } })
     })
 
     it('should not fail when client is undefined', async () => {
@@ -233,11 +233,11 @@ describe('utils/logging', () => {
       await logDebug(client, 'Test debug message')
 
       expect(mockLog).toHaveBeenCalledTimes(1)
-      expect(mockLog).toHaveBeenCalledWith({
+      expect(mockLog).toHaveBeenCalledWith({ body: {
         service: 'blocker-diverter',
         level: 'debug',
         message: 'Test debug message'
-      })
+      } })
     })
 
     it('should include extra context when provided', async () => {
@@ -253,7 +253,7 @@ describe('utils/logging', () => {
       })
 
       expect(mockLog).toHaveBeenCalledTimes(1)
-      expect(mockLog).toHaveBeenCalledWith({
+      expect(mockLog).toHaveBeenCalledWith({ body: {
         service: 'blocker-diverter',
         level: 'debug',
         message: 'Debug with context',
@@ -262,7 +262,7 @@ describe('utils/logging', () => {
           hash: 'abc123',
           cooldownRemaining: 25000 
         }
-      })
+      } })
     })
 
     it('should not fail when client is undefined', async () => {
@@ -288,11 +288,11 @@ describe('utils/logging', () => {
 
       await logInfo(client, '')
 
-      expect(mockLog).toHaveBeenCalledWith({
+      expect(mockLog).toHaveBeenCalledWith({ body: {
         service: 'blocker-diverter',
         level: 'info',
         message: ''
-      })
+      } })
     })
 
     it('should handle empty extra objects', async () => {
@@ -303,12 +303,12 @@ describe('utils/logging', () => {
 
       await logInfo(client, 'Test', {})
 
-      expect(mockLog).toHaveBeenCalledWith({
+      expect(mockLog).toHaveBeenCalledWith({ body: {
         service: 'blocker-diverter',
         level: 'info',
         message: 'Test',
         extra: {}
-      })
+      } })
     })
 
     it('should handle complex nested extra data', async () => {
@@ -331,12 +331,12 @@ describe('utils/logging', () => {
 
       await logInfo(client, 'Complex data', complexData)
 
-      expect(mockLog).toHaveBeenCalledWith({
+      expect(mockLog).toHaveBeenCalledWith({ body: {
         service: 'blocker-diverter',
         level: 'info',
         message: 'Complex data',
         extra: complexData
-      })
+      } })
     })
   })
 })

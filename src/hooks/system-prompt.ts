@@ -75,6 +75,7 @@ export function createSystemPromptHook(
         
         // Check feature toggle
         const state = getState(input.sessionID)
+        void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] system-prompt transform: sessionID=${input.sessionID} divert=${state.divertBlockers} blockers.length=${state.blockers.length}` } }).catch(() => {})
         if (!state.divertBlockers) {
           await logDebug(logClient, "Blocker diversion disabled, skipping system prompt injection")
           return

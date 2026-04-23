@@ -114,6 +114,7 @@ export function createSessionHooks(ctx: Parameters<Plugin>[0]) {
         }
 
         const { type, properties } = event
+        void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] event fired: ${type}` } }).catch(() => {})
 
         // Extract session ID from properties (varies by event type)
         // session.created/deleted: properties.info.id
@@ -162,23 +163,36 @@ export function createSessionHooks(ctx: Parameters<Plugin>[0]) {
             // sessionID for question events lives in properties.sessionID.
             const questionSessionId = properties?.sessionID as string | undefined
             const requestID = properties?.id as string | undefined
+            void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] question.asked: EVENT RECEIVED sessionID=${questionSessionId} requestID=${requestID}` } }).catch(() => {})
             if (requestID && questionSessionId) {
               const questionState = getState(questionSessionId)
+              void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] question.asked: state lookup for sessionID=${questionSessionId} -> divertBlockers=${questionState.divertBlockers}` } }).catch(() => {})
               if (questionState.divertBlockers) {
+                void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] question.asked: divertBlockers=TRUE -> attempting auto-reject' } }).catch(() => {})
                 try {
                   const serverUrl = (ctx as any).serverUrl ?? process.env.OPENCODE_URL ?? 'http://localhost:4096'
                   const rejectUrl = `${serverUrl}/question/${requestID}/reject`
-                  await fetch(rejectUrl, { method: 'POST' })
+                  void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] question.asked: reject URL=${rejectUrl}` } }).catch(() => {})
+                  const resp = await fetch(rejectUrl, { method: 'POST' })
+                  void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] question.asked: fetch response status=${resp.status}` } }).catch(() => {})
+                  if (resp.ok) {
+                    void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] question.asked: reject SUCCEEDED' } }).catch(() => {})
+                  } else {
+                    void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] question.asked: reject FAILED (non-ok status ${resp.status})` } }).catch(() => {})
+                  }
                   await logInfo(loggingClient, 'Auto-rejected question in autonomous mode', {
                     requestID,
                     sessionID: questionSessionId
                   })
                 } catch (err) {
+                  void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] question.asked: reject FAILED: ${err}` } }).catch(() => {})
                   await logError(loggingClient, 'Failed to auto-reject question', err as Error, {
                     requestID,
                     sessionID: questionSessionId
                   })
                 }
+              } else {
+                void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] question.asked: divertBlockers=FALSE -> NOT rejecting (user must answer)' } }).catch(() => {})
               }
             }
             break
@@ -279,6 +293,7 @@ Latest: ${JSON.stringify(recentBlockers, null, 2)}
         // Handle user messages: auto-disable if blocker diverter is active
         if (message.role === 'user') {
           const state = getState(sessionID)
+          void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] chat.message: user message detected, sessionID=${sessionID}, ignoreNextUserMessage=${state.ignoreNextUserMessage}` } }).catch(() => {})
 
           // If a blocker command just ran, it set ignoreNextUserMessage to absorb the
           // user-message that the command template creates. Skip auto-disable once.
@@ -291,6 +306,18 @@ Latest: ${JSON.stringify(recentBlockers, null, 2)}
           }
 
           if (state.divertBlockers) {
+            const hasAssistantMessage = state.lastMessageContent.trim().length > 0
+            const shouldAutoDisable =
+              hasAssistantMessage ||
+              state.repromptCount > 0 ||
+              state.blockers.length > 0
+
+            if (!shouldAutoDisable) {
+              void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] chat.message: divert=true but preserving autonomous mode (initial user prompt)' } }).catch(() => {})
+              return
+            }
+
+            void loggingClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] chat.message: auto-disabling divertBlockers (manual user takeover detected)' } }).catch(() => {})
             // User is taking manual control - disable autonomous mode
             updateState(sessionID, s => {
               s.divertBlockers = false
@@ -299,7 +326,10 @@ Latest: ${JSON.stringify(recentBlockers, null, 2)}
             })
 
             await logInfo(loggingClient, 'Auto-disabled blocker diverter (user message detected)', {
-              sessionID
+              sessionID,
+              hasAssistantMessage,
+              repromptCount: state.repromptCount,
+              blockerCount: state.blockers.length
             })
 
             // Show toast notification
@@ -420,6 +450,7 @@ async function handleSessionCreated(
   ctx: Parameters<Plugin>[0],
   parentID?: string
 ): Promise<void> {
+  void client.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] session.created: sessionID=${sessionId} parentID=${parentID ?? 'none'}` } }).catch(() => {})
   // Initialize state (lazy initialization via getState)
   const stateBefore = getState(sessionId)
   await logDebug(client, 'State before config application', {
@@ -429,6 +460,7 @@ async function handleSessionCreated(
   
   // Load config to get defaultDivertBlockers setting
   const config = await loadConfig(ctx.project.worktree)
+  void client.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] session.created: initializing state, defaultDivertBlockers=${config.defaultDivertBlockers}` } }).catch(() => {})
   await logDebug(client, 'Config loaded', {
     sessionId,
     defaultDivertBlockers: config.defaultDivertBlockers,
@@ -444,6 +476,7 @@ async function handleSessionCreated(
   if (parentID) {
     const parentState = getState(parentID)
     if (parentState.divertBlockers) {
+      void client.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] session.created: parentID found, inheriting divertBlockers=true from parent=${parentID}` } }).catch(() => {})
       updateState(sessionId, s => {
         s.divertBlockers = true
       })
@@ -455,6 +488,7 @@ async function handleSessionCreated(
   }
   
   const stateAfter = getState(sessionId)
+  void client.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] session.created: DONE, divertBlockers=${stateAfter.divertBlockers}` } }).catch(() => {})
   await logInfo(client, 'Session created', { 
     sessionId,
     divertBlockersBefore: stateBefore.divertBlockers,
@@ -481,6 +515,7 @@ async function handleSessionDeleted(
   client: LoggingClient,
   sessionId: string
 ): Promise<void> {
+  void client.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] session.deleted: sessionID=${sessionId}` } }).catch(() => {})
   // Get state snapshot before cleanup
   const state = getState(sessionId)
   const blockerCount = state.blockers.length

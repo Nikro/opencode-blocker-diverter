@@ -46,8 +46,8 @@ describe('Blocker Command Handlers', () => {
     // Create mock client
     mockClient = {
       app: {
-        log: mock(async (opts: { level: string; message: string; extra?: Record<string, unknown> }) => {
-          logMessages.push(opts)
+        log: mock(async (opts: { body: { level: string; message: string; extra?: Record<string, unknown> } }) => {
+          logMessages.push(opts.body)
         }),
       },
     }
@@ -66,9 +66,10 @@ describe('Blocker Command Handlers', () => {
       const result = await handleOnCommand(state, mockClient)
 
       expect(state.divertBlockers).toBe(true)
-      expect(logMessages).toHaveLength(1)
-      expect(logMessages[0].level).toBe('info')
-      expect(logMessages[0].message).toContain('enabled')
+      const infoMessages = logMessages.filter(m => !m.message.startsWith('[BD]'))
+      expect(infoMessages).toHaveLength(1)
+      expect(infoMessages[0].level).toBe('info')
+      expect(infoMessages[0].message).toContain('enabled')
       
       // Check CommandResult structure
       expect(result.handled).toBe(true)
@@ -81,7 +82,7 @@ describe('Blocker Command Handlers', () => {
       const state = getState(testSessionId)
       const result = await handleOnCommand(state, mockClient)
 
-      const logMsg = logMessages[0]
+      const logMsg = logMessages.filter(m => !m.message.startsWith('[BD]'))[0]
       expect(logMsg.message).toMatch(/blocker diverter enabled/i)
       expect(result.toast?.message).toContain('Enabled')
     })
@@ -95,9 +96,10 @@ describe('Blocker Command Handlers', () => {
       const result = await handleOffCommand(state, mockClient)
 
       expect(state.divertBlockers).toBe(false)
-      expect(logMessages).toHaveLength(1)
-      expect(logMessages[0].level).toBe('info')
-      expect(logMessages[0].message).toContain('disabled')
+      const infoMessages = logMessages.filter(m => !m.message.startsWith('[BD]'))
+      expect(infoMessages).toHaveLength(1)
+      expect(infoMessages[0].level).toBe('info')
+      expect(infoMessages[0].message).toContain('disabled')
       
       // Check CommandResult structure
       expect(result.handled).toBe(true)
@@ -110,7 +112,7 @@ describe('Blocker Command Handlers', () => {
       const state = getState(testSessionId)
       const result = await handleOffCommand(state, mockClient)
 
-      const logMsg = logMessages[0]
+      const logMsg = logMessages.filter(m => !m.message.startsWith('[BD]'))[0]
       expect(logMsg.message).toMatch(/blocker diverter disabled/i)
       expect(result.toast?.message).toContain('Disabled')
     })

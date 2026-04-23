@@ -5,6 +5,17 @@ All notable changes to the Blocker Diverter plugin will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-04-23
+
+### Fixed
+- **Autonomous-mode toggle reliability**: Prevented premature auto-disable on the initial user task prompt. `chat.message` now preserves `divertBlockers=true` for first-turn task input and only auto-disables on clear manual takeover signals (existing assistant response, active reprompt cycle, or logged blockers).
+- **Logging transport compatibility**: Updated plugin logging calls to use SDK-compatible `client.app.log({ body: ... })` shape so diagnostics are emitted consistently.
+
+### Added
+- **High-signal diagnostics**: Added `[BD]` breadcrumbs across plugin lifecycle hooks, tool interception, session events, and command handling to make interception failures immediately traceable from logs.
+- **Postinstall config seeding**: `postinstall` now also auto-creates root `blocker-diverter.json` (write-if-missing) in addition to `.opencode/blocker-diverter.json`.
+- **Regression coverage**: Added test coverage for preserving autonomous mode on initial user prompt and for root config creation/idempotency in postinstall flow.
+
 ## [0.2.4] - 2026-04-23
 
 ### Fixed

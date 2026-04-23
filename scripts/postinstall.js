@@ -387,6 +387,10 @@ export function bootstrap(targetDir, pkgDir) {
   const bdConfigPath = join(targetDir, ".opencode", "blocker-diverter.json");
   record(bdConfigPath, writeIfMissing(bdConfigPath, generateDefaultConfig()));
 
+  // 2b. Root-level blocker-diverter.json for convenient direct access.
+  const rootBdConfigPath = join(targetDir, "blocker-diverter.json");
+  record(rootBdConfigPath, writeIfMissing(rootBdConfigPath, generateDefaultConfig()));
+
   // 3. Patch/create .opencode/tui.jsonc so Ctrl+P commands are available.
   const tuiPatch = patchTuiConfig(targetDir);
   if (tuiPatch.action === "created" || tuiPatch.action === "patched") {

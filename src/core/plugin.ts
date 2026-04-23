@@ -44,16 +44,19 @@ interface CommandOutput {
  * @returns Hooks object with registered event handlers
  */
 export const createPlugin: Plugin = async (ctx) => {
+  const worktreeLog = (ctx as any).worktree ?? (ctx as any).project?.worktree ?? 'unknown'
   const { client, worktree } = ctx;
 
   // Cast client to LogClient for logging functions (SDK types don't match internal interface)
   const logClient = client as unknown as LogClient;
+  void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] createPlugin called, worktree: ${worktreeLog}` } }).catch(() => {})
 
   // Load and validate configuration (graceful degradation on errors)
   // NOTE: Do NOT pass logClient here. config.ts's internal logInfo/logWarning
-  // await client.app.log() via HTTP. During plugin init, OpenCode cannot process
+  // await client.app?.log?.() via HTTP. During plugin init, OpenCode cannot process
   // that HTTP request while waiting for createPlugin() to complete → deadlock.
   const config = await loadConfig(worktree);
+  void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] createPlugin: loadConfig returned, blockersFile=${config.blockersFile} maxBlockers=${config.maxBlockersPerRun} enabled=${config.enabled} defaultDivertBlockers=${config.defaultDivertBlockers}` } }).catch(() => {})
 
   // Log plugin initialization
   await logInfo(logClient, "Blocker Diverter plugin initialized", {
@@ -65,6 +68,7 @@ export const createPlugin: Plugin = async (ctx) => {
 
   // Plugin is not enabled, return empty hooks
   if (!config.enabled) {
+    void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] createPlugin: config.enabled=false, returning empty hooks' } }).catch(() => {})
     await logInfo(logClient, "Plugin disabled via config, skipping hook registration");
     return {};
   }
@@ -74,6 +78,7 @@ export const createPlugin: Plugin = async (ctx) => {
   const systemPromptHooks = createSystemPromptHook(ctx, config);
 
   // Return hook registrations
+  void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] createPlugin: returning hooks (plugin is ACTIVE)' } }).catch(() => {})
   return {
     // Blocker tool - AI agents call this to log blocking questions
     tool: {
@@ -85,6 +90,9 @@ export const createPlugin: Plugin = async (ctx) => {
       input: { tool: string; sessionID: string; callID: string },
       output: { args: any }
     ) => {
+      const state = getState(input.sessionID)
+      void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] tool.execute.before fired: tool=${input.tool} sessionID=${input.sessionID} divert=${state.divertBlockers}` } }).catch(() => {})
+      void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] tool.execute.before: state=${JSON.stringify({ divertBlockers: state.divertBlockers, blockers: state.blockers.length, repromptCount: state.repromptCount })}` } }).catch(() => {})
       await handleToolExecuteBefore(input, output, logClient, config, worktree);
     },
 
@@ -101,12 +109,16 @@ export const createPlugin: Plugin = async (ctx) => {
       output: { status: "ask" | "deny" | "allow" }
     ) => {
       const state = getState(input.sessionID);
+      void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] permission.ask fired: sessionID=${input.sessionID} divert=${state.divertBlockers}` } }).catch(() => {})
       if (state.divertBlockers) {
         output.status = "allow";
+        void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] permission.ask: AUTO-ALLOWING (divert=true)' } }).catch(() => {})
         await logInfo(logClient, "Auto-allowed permission in autonomous mode", {
           sessionID: input.sessionID,
           permissionType: (input as any).type,
         });
+      } else {
+        void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] permission.ask: NOT auto-allowing (divert=false)' } }).catch(() => {})
       }
     },
 
@@ -115,6 +127,7 @@ export const createPlugin: Plugin = async (ctx) => {
       input: { command: string; sessionID: string; arguments: string },
       output: CommandOutput
     ) => {
+      void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] command.execute.before fired: cmd=${input.command} sessionID=${input.sessionID}` } }).catch(() => {})
       // Validate required inputs
       if (!input.sessionID || typeof input.command !== 'string') {
         await logError(
@@ -134,18 +147,24 @@ export const createPlugin: Plugin = async (ctx) => {
       let result: CommandResult | undefined;
       
       if (cmd === "/blockers.on") {
+        void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] command.execute.before: matched /blockers.on, calling handleOnCommand' } }).catch(() => {})
         result = await handleOnCommand(state, logClient);
       }
       else if (cmd === "/blockers.off") {
+        void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] command.execute.before: matched /blockers.off, calling handleOffCommand' } }).catch(() => {})
         result = await handleOffCommand(state, logClient);
       }
       else if (cmd === "/blockers.stop") {
+        void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] command.execute.before: matched /blockers.stop, calling handleStopCommand' } }).catch(() => {})
         result = await handleStopCommand(state, logClient);
       }
       else if (cmd === "/blockers.status") {
+        void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] command.execute.before: matched /blockers.status, calling handleStatusCommand' } }).catch(() => {})
         result = await handleStatusCommand(state, logClient, config);
       }
       // Don't intercept /blockers.list - let AI template handle it
+      
+      void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] command.execute.before: result.handled=${result?.handled ?? 'undefined (no match)'}` } }).catch(() => {})
       
       // If command was handled, show toast and replace output
       if (result?.handled) {

@@ -55,10 +55,12 @@ export type Config = z.infer<typeof ConfigSchema>
 export interface LogClient {
   app?: {
     log?: (opts: {
-      service?: string
-      level: string
-      message: string
-      extra?: Record<string, unknown>
+      body: {
+        service?: string
+        level: string
+        message: string
+        extra?: Record<string, unknown>
+      }
     }) => Promise<void>
   }
 }
@@ -284,7 +286,7 @@ async function logInfo(
       logOptions.extra = extra
     }
     
-    await client.app.log(logOptions)
+    await client.app.log({ body: logOptions })
   } catch {
     // Silently fail if logging service is unavailable
   }
@@ -322,7 +324,7 @@ async function logWarning(
       logOptions.extra = extra
     }
     
-    await client.app.log(logOptions)
+    await client.app.log({ body: logOptions })
   } catch {
     // Silently fail if logging service is unavailable
   }

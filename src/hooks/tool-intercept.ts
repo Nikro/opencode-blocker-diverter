@@ -46,16 +46,20 @@ export async function handleToolExecuteBefore(
   try {
     // 1. Check if this tool is handled
     if (!HANDLED_TOOLS[input.tool]) {
-      // Tool not handled - allow execution
+      void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleToolExecuteBefore: tool=${input.tool} handled=false -> ALLOWING pass-through` } }).catch(() => {})
       return
     }
+
+    void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleToolExecuteBefore: tool=${input.tool} handled=true -> checking state` } }).catch(() => {})
 
     // 2. Check if plugin is enabled for this session
     const state = getState(input.sessionID)
     if (!state.divertBlockers) {
-      // Pass through - don't intercept
+      void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleToolExecuteBefore: state.divertBlockers=false -> ALLOWING (pass-through)` } }).catch(() => {})
       return
     }
+
+    void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleToolExecuteBefore: state.divertBlockers=true -> BLOCKING tool=${input.tool}` } }).catch(() => {})
 
     // Handle question tool (legacy blocking behavior)
     if (input.tool === 'question') {
@@ -66,6 +70,7 @@ export async function handleToolExecuteBefore(
   } catch (error) {
     // If error is a blocking error, re-throw it
     if (error instanceof Error && error.message.includes('Autonomous mode is active')) {
+      void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleToolExecuteBefore: re-throwing blocking error for tool=${input.tool}` } }).catch(() => {})
       throw error
     }
 
@@ -79,6 +84,7 @@ export async function handleToolExecuteBefore(
     
     // If this is a handled tool but we hit an error, still try to block question tool
     if (input.tool === 'question') {
+      void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] handleToolExecuteBefore: error path - still throwing block for question tool' } }).catch(() => {})
       throw new Error('Blocker Diverter: Autonomous mode is active. Do not ask the user questions — make a reasonable default choice based on project conventions, log your decision in the response, and continue working on the next task.')
     }
     
@@ -98,6 +104,7 @@ async function handleQuestionTool(
   projectDir: string,
   state: SessionState
 ): Promise<void> {
+  void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleQuestionTool: entered, sessionID=${input.sessionID}` } }).catch(() => {})
   const question = `Agent tried to use blocked tool: ${input.tool}`
   const context = JSON.stringify({
     tool: input.tool,
@@ -105,19 +112,23 @@ async function handleQuestionTool(
     sessionID: input.sessionID
   })
   const hash = await generateBlockerHash(question, context)
+  const inCooldown = isInCooldown(hash, state)
+  void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleQuestionTool: cooldown check hash=${hash.substring(0, 8)} inCooldown=${inCooldown}` } }).catch(() => {})
 
-  if (isInCooldown(hash, state)) {
+  if (inCooldown) {
     await logInfo(
       client,
       `Duplicate tool intercept skipped (cooldown): ${input.tool}`,
       { sessionId: input.sessionID, tool: input.tool }
     )
     // Still block the tool but don't log
+    void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: '[BD] handleQuestionTool: THROWING to block question tool (cooldown path)' } }).catch(() => {})
     throw new Error('Blocker Diverter: Autonomous mode is active. Do not ask the user questions — make a reasonable default choice based on project conventions, log your decision in the response, and continue working on the next task.')
   }
 
   // Check max blockers limit
   if (state.blockers.length >= config.maxBlockersPerRun) {
+    void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleQuestionTool: max blockers reached (${state.blockers.length}/${config.maxBlockersPerRun}) -> THROWING` } }).catch(() => {})
     await logInfo(
       client,
       `Max blockers reached (${state.blockers.length}/${config.maxBlockersPerRun})`,
@@ -138,6 +149,7 @@ async function handleQuestionTool(
     blocksProgress: true,
   }
 
+  void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleQuestionTool: about to THROW blocking error for tool=${input.tool}` } }).catch(() => {})
   const success = await appendBlocker(config.blockersFile, blocker, projectDir)
 
   if (success) {
@@ -163,5 +175,6 @@ async function handleQuestionTool(
   }
 
   // Block the tool by throwing error
+  void client?.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] handleQuestionTool: THREW blocking error successfully` } }).catch(() => {})
   throw new Error('Blocker Diverter: Autonomous mode is active. Do not ask the user questions — make a reasonable default choice based on project conventions, log your decision in the response, and continue working on the next task.')
 }

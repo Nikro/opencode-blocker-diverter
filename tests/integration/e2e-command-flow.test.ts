@@ -117,13 +117,13 @@ describe('E2E: Command Flow', () => {
 
     // Verify log called with status info
     expect(mockContext.client.app.log).toHaveBeenCalled()
-    // Find the status log call (skip the debug log)
+    // Find the status log call (skip the debug log and BD diagnostics)
     const statusLogCall = mockContext.client.app.log.mock.calls.find(
-      (call: any) => call[0]?.message?.includes('Status')
+      (call: any) => call[0]?.body?.message?.includes('Status') && !call[0]?.body?.message?.startsWith('[BD]')
     )
     expect(statusLogCall).toBeDefined()
-    expect(statusLogCall[0].message).toContain('Status')
-    expect(statusLogCall[0].message).toContain('1/50') // 1 blocker out of 50 max
+    expect(statusLogCall[0].body.message).toContain('Status')
+    expect(statusLogCall[0].body.message).toContain('1/50') // 1 blocker out of 50 max
   })
 
   it('should handle /blockers.list command', async () => {
