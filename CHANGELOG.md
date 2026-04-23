@@ -5,6 +5,12 @@ All notable changes to the Blocker Diverter plugin will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-04-23
+
+### Fixed
+- **Child session inheritance**: Subagent sessions spawned via the `task` tool now inherit `divertBlockers=true` from their parent session. Previously, child sessions started with `divertBlockers=false` (the default), allowing questions to bypass autonomous mode interception.
+- **Question rejection**: Replaced broken `client.question.reject()` SDK call (method does not exist on plugin client surface) with a direct `fetch()` to `${serverUrl}/question/${requestID}/reject`. The old code was silently swallowed by try/catch, so questions were never actually rejected even when the `question.asked` event was handled.
+
 ## [0.2.3] - 2026-04-23
 
 ### Fixed

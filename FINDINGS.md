@@ -251,6 +251,56 @@ grep -E "plugin|blocker|tui" "$LOGFILE"
 
 ---
 
+## Question Interception Investigation (2026-04-23)
+
+### Scope investigated
+- Why `question` picker still appears even when `divertBlockers=true`.
+- Verified server internals (`plugin.trigger`, prompt tool execution flow, session IDs, SDK surface).
+
+### Confirmed findings
+
+1. **`tool.execute.before` is awaited and throwing SHOULD stop the tool.**
+   - `packages/opencode/src/session/prompt.ts:414-420` calls `yield* plugin.trigger("tool.execute.before", ...)` before `item.execute(...)`.
+   - `packages/opencode/src/plugin/index.ts:266-270` executes hooks sequentially with `yield* Effect.promise(async () => fn(input, output))`.
+   - There is no local catch around the `tool.execute.before` call in prompt execution path.
+   - Conclusion: if our hook throws, `Question.Service.ask()` should not run.
+
+2. **Backup `question.asked` handler is race-prone by design.**
+   - Event hooks are fire-and-forget: `packages/opencode/src/plugin/index.ts:247-249` uses `void hook["event"]?.(...)`.
+   - So `question.asked` reject happens *after* publish and can race with TUI rendering.
+
+3. **Backup reject API call is currently invalid for plugin client type.**
+   - Plugin input client is `ReturnType<typeof createOpencodeClient>` from `@opencode-ai/sdk` v1 surface (`@opencode-ai/plugin/dist/index.d.ts:36-38`).
+   - That client does **not** expose `client.question` (confirmed by runtime check):
+     - `bun -e "import { createOpencodeClient } from '@opencode-ai/sdk'; ..."` → `hasQuestion false questionType undefined`
+   - So `await (client as any).question.reject({ requestID })` in `src/hooks/session.ts:167` can fail silently (caught + logged best-effort).
+
+4. **Most likely real blocker: session-state mismatch across parent/subagent sessions.**
+   - `/blockers.on` mutates state object for the command's session (`src/core/plugin.ts:128,137`; `src/commands/blockers-cmd.ts:52-58`).
+   - `tool.execute.before` checks state by incoming `input.sessionID` (`src/hooks/tool-intercept.ts:54-55`).
+   - Subagent tool calls run in child sessions (`packages/opencode/src/tool/task.ts:67-71,133`).
+   - New sessions are reset from config default in plugin (`src/hooks/session.ts:413-436`) and do **not** inherit parent `divertBlockers`.
+   - TUI aggregates question prompts from parent + children (`packages/opencode/src/cli/cmd/tui/routes/session/index.tsx:140-143`), so child questions still show picker.
+
+### Reproductions run
+
+- CLI non-interactive run (with logs):
+  - Plugin loaded: `service=plugin path=file:///home/nikro/.config/opencode/node_modules/opencode-blocker-diverter loading plugin`
+  - `question` and `blocker` tools registered: `tool.registry status=started question` + `tool.registry status=started blocker`
+  - Model still answered in plain text (“I don't have a question tool...”), so no question call occurred in this specific run.
+
+- Direct state/intercept simulation:
+  - Same session enabled → question blocked (throw observed).
+  - Parent enabled, child default false → child question **not blocked**.
+
+### Practical fix direction
+
+1. **Primary fix:** propagate `divertBlockers` from parent to child on `session.created` when `info.parentID` exists.
+2. **Secondary hardening:** in `tool.execute.before`, if current session not diverted, optionally check parent session chain before allowing `question`.
+3. **Backup hook fix (optional):** if keeping `question.asked` reject path, use SDK v2 client or direct `/question/:requestID/reject` call; current v1 client surface lacks `question`.
+
+---
+
 ## Quick Commands Reference
 
 ```bash

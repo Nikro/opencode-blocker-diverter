@@ -130,9 +130,11 @@ export function createSessionHooks(ctx: Parameters<Plugin>[0]) {
 
         // Dispatch based on event type
         switch (type) {
-          case 'session.created':
-            await handleSessionCreated(loggingClient, sessionId as string, ctx)
+          case 'session.created': {
+            const parentID = properties?.info?.parentID as string | undefined
+            await handleSessionCreated(loggingClient, sessionId as string, ctx, parentID)
             break
+          }
 
           case 'session.deleted':
             await handleSessionDeleted(loggingClient, sessionId as string)
@@ -164,7 +166,9 @@ export function createSessionHooks(ctx: Parameters<Plugin>[0]) {
               const questionState = getState(questionSessionId)
               if (questionState.divertBlockers) {
                 try {
-                  await (client as any).question.reject({ requestID })
+                  const serverUrl = (ctx as any).serverUrl ?? process.env.OPENCODE_URL ?? 'http://localhost:4096'
+                  const rejectUrl = `${serverUrl}/question/${requestID}/reject`
+                  await fetch(rejectUrl, { method: 'POST' })
                   await logInfo(loggingClient, 'Auto-rejected question in autonomous mode', {
                     requestID,
                     sessionID: questionSessionId
@@ -413,7 +417,8 @@ async function handleMessageUpdated(
 async function handleSessionCreated(
   client: LoggingClient,
   sessionId: string,
-  ctx: Parameters<Plugin>[0]
+  ctx: Parameters<Plugin>[0],
+  parentID?: string
 ): Promise<void> {
   // Initialize state (lazy initialization via getState)
   const stateBefore = getState(sessionId)
@@ -434,6 +439,20 @@ async function handleSessionCreated(
   updateState(sessionId, s => {
     s.divertBlockers = config.defaultDivertBlockers
   })
+
+  // Inherit divertBlockers from parent session (e.g. task-spawned child sessions)
+  if (parentID) {
+    const parentState = getState(parentID)
+    if (parentState.divertBlockers) {
+      updateState(sessionId, s => {
+        s.divertBlockers = true
+      })
+      await logInfo(client, 'Inherited divertBlockers=true from parent session', {
+        sessionId,
+        parentID
+      })
+    }
+  }
   
   const stateAfter = getState(sessionId)
   await logInfo(client, 'Session created', { 
