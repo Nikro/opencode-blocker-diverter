@@ -884,6 +884,99 @@ describe('Completion Marker - completionMarkerDetected flag (robust fallback)', 
     // lastMessageContent updated correctly
     expect(getState(testSessionId).lastMessageContent).toContain('BLOCKER_DIVERTER_DONE!')
   })
+
+  it('captures assistant text from message.part.updated and stops on completion marker', async () => {
+    const hooks = createSessionHooks(mockContext)
+
+    const state = getState(testSessionId)
+    state.divertBlockers = true
+
+    // Assistant message starts (message.updated has role/id but no content payload)
+    await hooks.event({
+      event: {
+        type: 'message.updated',
+        properties: {
+          info: {
+            id: 'msg-assistant-1',
+            role: 'assistant',
+            sessionID: testSessionId
+          }
+        }
+      }
+    })
+
+    // Assistant text arrives via message.part.updated
+    await hooks.event({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          sessionID: testSessionId,
+          part: {
+            id: 'part-1',
+            sessionID: testSessionId,
+            messageID: 'msg-assistant-1',
+            type: 'text',
+            text: 'Checked again: all tasks complete. BLOCKER_DIVERTER_DONE!',
+            time: { start: 1, end: 2 }
+          }
+        }
+      }
+    })
+
+    // Marker should already be detected before idle
+    expect(getState(testSessionId).completionMarkerDetected).toBe(true)
+
+    await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
+
+    // Must stop - no continuation injection
+    expect(mockContext.client.session.promptAsync).not.toHaveBeenCalled()
+    expect(getState(testSessionId).divertBlockers).toBe(false)
+  })
+
+  it('ignores user text parts containing marker', async () => {
+    const hooks = createSessionHooks(mockContext)
+
+    const state = getState(testSessionId)
+    state.divertBlockers = true
+
+    // User message should not arm completion detection
+    await hooks.event({
+      event: {
+        type: 'message.updated',
+        properties: {
+          info: {
+            id: 'msg-user-1',
+            role: 'user',
+            sessionID: testSessionId
+          }
+        }
+      }
+    })
+
+    await hooks.event({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          sessionID: testSessionId,
+          part: {
+            id: 'part-user-1',
+            sessionID: testSessionId,
+            messageID: 'msg-user-1',
+            type: 'text',
+            text: 'Please say BLOCKER_DIVERTER_DONE! when done.',
+            time: { start: 1, end: 2 }
+          }
+        }
+      }
+    })
+
+    expect(getState(testSessionId).completionMarkerDetected).toBe(false)
+
+    await hooks.event({ event: { type: 'session.idle', properties: { sessionID: testSessionId } } })
+
+    // Continue should still be injected because no assistant completion marker was detected
+    expect(mockContext.client.session.promptAsync).toHaveBeenCalled()
+  })
 })
 
 describe('Chat Message - Assistant Message Capture', () => {

@@ -20,6 +20,37 @@ import { generateBlockerHash, isInCooldown, addToCooldown } from "../utils/dedup
 import { appendBlocker } from "../utils/blockers-file"
 import { BLOCKER_RESPONSE_MESSAGE } from "../utils/templates"
 
+async function flushPendingWrites(
+  logClient: LogClient,
+  config: PluginConfig,
+  worktree: string,
+  state: ReturnType<typeof getState>,
+  sessionId: string
+): Promise<void> {
+  if (state.pendingWrites.length === 0) return
+
+  const queued = [...state.pendingWrites]
+  const remaining: Blocker[] = []
+
+  for (const pending of queued) {
+    const pendingSuccess = await appendBlocker(config.blockersFile, pending, worktree)
+    if (!pendingSuccess) {
+      remaining.push(pending)
+    }
+  }
+
+  const flushedCount = queued.length - remaining.length
+  state.pendingWrites = remaining
+
+  if (flushedCount > 0) {
+    await logInfo(logClient, 'Flushed queued blocker writes', {
+      sessionId,
+      flushedCount,
+      remainingQueued: remaining.length,
+    })
+  }
+}
+
 /**
  * Creates the blocker tool definition for plugin registration
  *
@@ -83,11 +114,8 @@ export function createBlockerTool(
       // Get session ID from context (OpenCode provides this)
       const sessionId = context.sessionID
 
-      // Check if plugin is enabled for this session
+      // Tool must remain usable regardless of /blockers on/off state.
       const state = getState(sessionId)
-      if (!state.divertBlockers) {
-        return "Blocker diversion is disabled for this session. Use /blockers.on to enable."
-      }
 
       // Check deduplication cooldown
       const hash = await generateBlockerHash(validatedArgs.question, validatedArgs.context)
@@ -124,13 +152,19 @@ export function createBlockerTool(
         chosenReasoning: validatedArgs.chosenReasoning,
       }
 
-      // Try to write to file
-      const success = await appendBlocker(config.blockersFile, blocker, worktree)
+      // Try to write to file (one immediate retry for transient failures)
+      let success = await appendBlocker(config.blockersFile, blocker, worktree)
+
+      if (!success) {
+        success = await appendBlocker(config.blockersFile, blocker, worktree)
+      }
 
       if (success) {
         // Add to session state
         state.blockers.push(blocker)
         addToCooldown(hash, state, config)
+
+        await flushPendingWrites(logClient, config, worktree, state, sessionId)
 
         await logInfo(logClient, `Blocker logged: ${validatedArgs.question}`, {
           blockerId: blocker.id,

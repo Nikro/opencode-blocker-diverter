@@ -20,6 +20,7 @@ import {
 import { createBlockerTool } from "../tools/blocker";
 import { getState } from "../state";
 import { logInfo, logError } from "../utils/logging";
+import { getProjectBaseDir } from "../utils/project-dir";
 
 /**
  * Command output structure
@@ -45,7 +46,8 @@ interface CommandOutput {
  */
 export const createPlugin: Plugin = async (ctx) => {
   const worktreeLog = (ctx as any).worktree ?? (ctx as any).project?.worktree ?? 'unknown'
-  const { client, worktree } = ctx;
+  const { client } = ctx;
+  const projectBaseDir = getProjectBaseDir(ctx)
 
   // Cast client to LogClient for logging functions (SDK types don't match internal interface)
   const logClient = client as unknown as LogClient;
@@ -55,13 +57,14 @@ export const createPlugin: Plugin = async (ctx) => {
   // NOTE: Do NOT pass logClient here. config.ts's internal logInfo/logWarning
   // await client.app?.log?.() via HTTP. During plugin init, OpenCode cannot process
   // that HTTP request while waiting for createPlugin() to complete → deadlock.
-  const config = await loadConfig(worktree);
+  const config = await loadConfig(projectBaseDir);
   void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] createPlugin: loadConfig returned, blockersFile=${config.blockersFile} maxBlockers=${config.maxBlockersPerRun} enabled=${config.enabled} defaultDivertBlockers=${config.defaultDivertBlockers}` } }).catch(() => {})
 
   // Log plugin initialization
   await logInfo(logClient, "Blocker Diverter plugin initialized", {
     enabled: config.enabled,
-    worktree,
+    worktree: worktreeLog,
+    projectBaseDir,
     blockersFile: config.blockersFile,
     maxBlockersPerRun: config.maxBlockersPerRun,
   });
@@ -82,7 +85,7 @@ export const createPlugin: Plugin = async (ctx) => {
   return {
     // Blocker tool - AI agents call this to log blocking questions
     tool: {
-      blocker: createBlockerTool(logClient, config, worktree),
+      blocker: createBlockerTool(logClient, config, projectBaseDir),
     },
 
     // Tool interception - block question tool during autonomous mode
@@ -93,7 +96,7 @@ export const createPlugin: Plugin = async (ctx) => {
       const state = getState(input.sessionID)
       void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] tool.execute.before fired: tool=${input.tool} sessionID=${input.sessionID} divert=${state.divertBlockers}` } }).catch(() => {})
       void logClient.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] tool.execute.before: state=${JSON.stringify({ divertBlockers: state.divertBlockers, blockers: state.blockers.length, repromptCount: state.repromptCount })}` } }).catch(() => {})
-      await handleToolExecuteBefore(input, output, logClient, config, worktree);
+      await handleToolExecuteBefore(input, output, logClient, config, projectBaseDir);
     },
 
     // Session lifecycle hooks - session.created, session.deleted, session.idle, etc.

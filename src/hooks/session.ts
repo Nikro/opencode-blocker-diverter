@@ -14,6 +14,7 @@ import { logInfo, logWarn, logError, logDebug } from '../utils/logging'
 import { loadConfig } from '../config'
 import { getStopPrompt } from '../utils/templates'
 import { withTimeout, TimeoutError } from '../utils/with-timeout'
+import { getProjectBaseDir } from '../utils/project-dir'
 
 /**
  * Session event structure from OpenCode SDK
@@ -155,6 +156,10 @@ export function createSessionHooks(ctx: Parameters<Plugin>[0]) {
 
           case 'message.updated':
             await handleMessageUpdated(loggingClient, properties)
+            break
+
+          case 'message.part.updated':
+            await handleMessagePartUpdated(loggingClient, properties, ctx)
             break
 
           case 'question.asked': {
@@ -363,7 +368,7 @@ Latest: ${JSON.stringify(recentBlockers, null, 2)}
 
             // Eagerly set completionMarkerDetected flag so session.idle can
             // honour it even if it fires before this hook in some orderings.
-            const config = await loadConfig(ctx.project.worktree)
+            const config = await loadConfig(getProjectBaseDir(ctx))
             if (textContent.includes(config.completionMarker)) {
               updateState(sessionID, s => {
                 s.completionMarkerDetected = true
@@ -408,6 +413,7 @@ async function handleMessageUpdated(
   properties: Record<string, unknown>
 ): Promise<void> {
   const info = properties?.info as { 
+    id?: string
     role?: string
     sessionID?: string
     error?: { name?: string }
@@ -422,6 +428,12 @@ async function handleMessageUpdated(
   
   const sessionId = info.sessionID
   if (!sessionId) return
+
+  if (typeof info.id === 'string' && info.id.length > 0) {
+    updateState(sessionId, s => {
+      s.lastAssistantMessageID = info.id as string
+    })
+  }
 
   // Check for abort error FIRST (highest priority)
   if (info.error && info.error.name === 'MessageAbortedError') {
@@ -489,6 +501,57 @@ async function handleMessageUpdated(
 }
 
 /**
+ * Handle message.part.updated event
+ *
+ * OpenCode emits assistant text content on message.part.updated (text parts),
+ * while message.updated carries metadata only. Capture completed assistant text
+ * parts here so completion-marker detection can work in session.idle.
+ */
+async function handleMessagePartUpdated(
+  client: LoggingClient,
+  properties: Record<string, unknown>,
+  ctx: Parameters<Plugin>[0]
+): Promise<void> {
+  const sessionId = typeof properties?.sessionID === 'string' ? properties.sessionID : undefined
+  if (!sessionId) return
+
+  const part = properties?.part as {
+    type?: string
+    text?: string
+    messageID?: string
+    time?: { end?: number }
+  } | undefined
+
+  if (!part || part.type !== 'text' || typeof part.text !== 'string') return
+  const text = part.text
+
+  // Ignore partial deltas: use only completed text parts
+  if (!part.time?.end) return
+
+  const state = getState(sessionId)
+
+  // Guard against user text parts (including synthetic continue prompts)
+  if (!state.lastAssistantMessageID || part.messageID !== state.lastAssistantMessageID) return
+
+  updateState(sessionId, s => {
+    s.lastMessageContent = text
+  })
+
+  const config = await loadConfig(getProjectBaseDir(ctx))
+  if (text.includes(config.completionMarker)) {
+    updateState(sessionId, s => {
+      s.completionMarkerDetected = true
+    })
+  }
+
+  await logDebug(client, 'Captured assistant text via message.part.updated', {
+    sessionId,
+    messageID: part.messageID,
+    textLength: text.length
+  })
+}
+
+/**
  * Handle session.created event
  * 
  * Initializes session state with default values from config.
@@ -509,7 +572,7 @@ async function handleSessionCreated(
   })
   
   // Load config to get defaultDivertBlockers setting
-  const config = await loadConfig(ctx.project.worktree)
+  const config = await loadConfig(getProjectBaseDir(ctx))
   void client.app?.log?.({ body: { service: 'blocker-diverter', level: 'info', message: `[BD] session.created: initializing state, defaultDivertBlockers=${config.defaultDivertBlockers}` } }).catch(() => {})
   await logDebug(client, 'Config loaded', {
     sessionId,
@@ -641,7 +704,7 @@ async function handleSessionIdle(
   ctx: Parameters<Plugin>[0]
 ): Promise<void> {
   const state = getState(sessionId)
-  const config = await loadConfig(ctx.project.worktree)
+  const config = await loadConfig(getProjectBaseDir(ctx))
 
   // Recovery guard - skip one idle cycle after error
   if (state.isRecovering) {

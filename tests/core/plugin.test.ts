@@ -112,6 +112,28 @@ describe('createPlugin', () => {
     expect('experimental.chat.system.transform' in hooks).toBe(true)
   })
 
+  it('should load config from directory when worktree resolves to root', async () => {
+    const mockContext = createMockContext()
+    const projectDir = '/tmp/test-project-dir-fallback'
+    const configDir = `${projectDir}/.opencode`
+    const configPath = `${configDir}/blocker-diverter.json`
+
+    mockContext.worktree = '/'
+    mockContext.project.worktree = '/'
+    mockContext.directory = projectDir
+
+    try {
+      mkdirSync(configDir, { recursive: true })
+      await Bun.write(configPath, JSON.stringify({ enabled: false }))
+
+      const hooks = await createPlugin(mockContext)
+
+      expect(Object.keys(hooks).length).toBe(0)
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true })
+    }
+  })
+
   it('should return empty object when plugin is disabled via config', async () => {
     const mockContext = createMockContext()
     

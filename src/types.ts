@@ -237,6 +237,13 @@ export interface SessionState {
    * Reset to false when divertBlockers is disabled (completion handled).
    */
   completionMarkerDetected: boolean
+
+  /**
+   * Most recent assistant message ID observed via message.updated.
+   * Used to associate message.part.updated text with assistant output
+   * (and ignore user text parts that may also contain completion marker text).
+   */
+  lastAssistantMessageID: string
 }
 
 /**
