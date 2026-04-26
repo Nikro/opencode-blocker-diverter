@@ -33,7 +33,7 @@ async function flushPendingWrites(
   const remaining: Blocker[] = []
 
   for (const pending of queued) {
-    const pendingSuccess = await appendBlocker(config.blockersFile, pending, worktree)
+    const pendingSuccess = await appendBlocker(config.blockersFile, pending, worktree, logClient)
     if (!pendingSuccess) {
       remaining.push(pending)
     }
@@ -153,10 +153,10 @@ export function createBlockerTool(
       }
 
       // Try to write to file (one immediate retry for transient failures)
-      let success = await appendBlocker(config.blockersFile, blocker, worktree)
+      let success = await appendBlocker(config.blockersFile, blocker, worktree, logClient)
 
       if (!success) {
-        success = await appendBlocker(config.blockersFile, blocker, worktree)
+        success = await appendBlocker(config.blockersFile, blocker, worktree, logClient)
       }
 
       if (success) {

@@ -16,6 +16,8 @@
 import { resolve, dirname, basename, relative, isAbsolute, sep, normalize, join } from 'node:path'
 import { appendFile, rename, mkdir, readFile } from 'node:fs/promises'
 import type { Blocker } from '../types'
+import { logError } from './logging'
+import type { LogClient } from '../config'
 
 /**
  * Default blocker template (used when custom template not found)
@@ -242,7 +244,8 @@ async function formatBlockerEntry(blocker: Blocker, projectDir: string): Promise
 export async function appendBlocker(
   filePath: string,
   blocker: Blocker,
-  projectDir: string
+  projectDir: string,
+  logClient?: LogClient
 ): Promise<boolean> {
   try {
     // Validate path security
@@ -266,7 +269,11 @@ export async function appendBlocker(
     }
     
     // Log I/O errors for debugging (graceful degradation per FR-024)
-    console.error('[blocker-diverter] Failed to append blocker:', error)
+    await logError(logClient, 'Failed to append blocker', error as Error, {
+      filePath,
+      sessionId: blocker.sessionId,
+      category: blocker.category
+    })
     return false
   }
 }
@@ -278,6 +285,7 @@ export async function appendBlocker(
  * 
  * @param filePath - Path to blockers.md
  * @param projectDir - Project root for validation
+ * @param logClient - Optional logging client
  * @returns Promise<number> - Count of blockers (0 if file missing or error)
  * @throws Error if path validation fails
  * 
@@ -291,7 +299,8 @@ export async function appendBlocker(
  */
 export async function getBlockerCount(
   filePath: string,
-  projectDir: string
+  projectDir: string,
+  logClient?: LogClient
 ): Promise<number> {
   try {
     // Validate path security
@@ -320,7 +329,7 @@ export async function getBlockerCount(
     }
     
     // Log read errors for debugging (graceful degradation)
-    console.error('[blocker-diverter] Failed to count blockers:', error)
+    await logError(logClient, 'Failed to count blockers', error as Error, { filePath })
     return 0
   }
 }
@@ -334,6 +343,7 @@ export async function getBlockerCount(
  * @param filePath - Path to blockers.md
  * @param maxCount - Max blockers before rotation
  * @param projectDir - Project root
+ * @param logClient - Optional logging client
  * @returns Promise<boolean> - true if rotated, false if not needed or failed
  * @throws Error if path validation fails
  * 
@@ -348,14 +358,15 @@ export async function getBlockerCount(
 export async function rotateIfNeeded(
   filePath: string,
   maxCount: number,
-  projectDir: string
+  projectDir: string,
+  logClient?: LogClient
 ): Promise<boolean> {
   try {
     // Validate path security
     const resolvedPath = validatePath(filePath, projectDir)
     
     // Check current count
-    const count = await getBlockerCount(filePath, projectDir)
+    const count = await getBlockerCount(filePath, projectDir, logClient)
     
     // No rotation needed
     if (count < maxCount) {
@@ -392,7 +403,7 @@ export async function rotateIfNeeded(
     }
     
     // Log rotation errors for debugging (graceful degradation)
-    console.error('[blocker-diverter] Failed to rotate blockers file:', error)
+    await logError(logClient, 'Failed to rotate blockers file', error as Error, { filePath })
     return false
   }
 }

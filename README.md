@@ -274,4 +274,4 @@ MIT © 2026
 
 ---
 
-**Status**: 🚧 In Development | **Version**: 0.1.0 (pre-release)
+**Status**: ✅ Stable | **Version**: 0.2.9
