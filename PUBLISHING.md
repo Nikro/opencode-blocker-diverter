@@ -73,6 +73,16 @@ git commit -m "chore: bump version to $(node -p "require('./package.json').versi
 git push origin main
 ```
 
+Before tagging a release that touches the entry points (for example 0.3.0, the OpenCode 2.x port), also check:
+
+```bash
+bun run typecheck && bun test && bun run build
+node -e "import('./dist/index.js').then(m => console.log(Object.keys(m.default)))"   # id, server, setup
+npm pack --dry-run   # dist/ with .d.ts, no secrets or local files
+```
+
+Test the tarball against both OpenCode lines in a sandbox profile before publishing. Load failures are fail-open, so check the logs for `failed to load plugin`.
+
 ### Step 2: Create GitHub Release
 
 ```bash

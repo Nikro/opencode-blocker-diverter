@@ -90,6 +90,13 @@ export function cleanupState(sessionId: string): void {
 }
 
 /**
+ * Remove every session state (plugin unload)
+ */
+export function clearAllState(): void {
+  sessions.clear()
+}
+
+/**
  * Check if session state exists in the map (for testing)
  * 
  * @param sessionId - OpenCode session ID

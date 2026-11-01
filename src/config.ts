@@ -237,7 +237,7 @@ function getDefaultsWithResolvedPaths(projectDir: string): Config {
  * @param projectDir - Project root directory
  * @returns Absolute path to blockers file (validated to be within projectDir)
  */
-function resolveBlockersFilePath(blockersFile: string, projectDir: string): string {
+export function resolveBlockersFilePath(blockersFile: string, projectDir: string): string {
   // Resolve absolute project directory
   const absoluteProjectDir = resolve(projectDir)
   

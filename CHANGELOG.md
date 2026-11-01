@@ -5,6 +5,26 @@ All notable changes to the Blocker Diverter plugin will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-31
+
+### Added
+- **OpenCode 2.x support** (tested on 2.2.5). The default export is `{ id, server, setup }`: `server` is the 1.x entry (unchanged), `setup` is the 2.x entry. One package serves both. Design: `docs/adr/opencode-v2-port.md`.
+- v2 hooks: `blocker` tool (JSON Schema input), question interception, ask-to-allow permission (never deny), user-prompt auto-disable, system prompt and compaction summary.
+- v2 session lifecycle on durable events: continue prompts (bounded by `maxReprompts`, `cooldownMs`, `repromptWindowMs`), completion marker, cancel (reason `user`) and failure recovery.
+- v2 commands: `/blockers.on`, `/blockers.off`, `/blockers.stop`, `/blockers.status`.
+- v2 config: `OPENCODE_CONFIG_DIR` / `$XDG_CONFIG_HOME/opencode` global file, project `.opencode/blocker-diverter.json`, and plugin `options` overrides.
+- v2 file logger: `$XDG_STATE_HOME/opencode/blocker-diverter.log`.
+- Tests under `tests/v2/` with a fake v2 context.
+
+### Fixed
+- 0.2.9 never loaded on OpenCode 2.x: its default export had no `setup`, so OpenCode logged `failed to load plugin` and ran without it.
+
+### Changed
+- On 2.x, `/blockers.stop` is registered as a command. v1 handled it in a hook but ships no template for it, so v1 is unchanged.
+
+### Not included
+- The TUI part on OpenCode 2.x. `tui.ts` (Ctrl+B, Ctrl+P commands) stays 1.x only.
+
 ## [0.2.6] - 2026-04-23
 
 ### Fixed

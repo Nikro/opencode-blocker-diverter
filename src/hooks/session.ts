@@ -820,7 +820,7 @@ async function handleSessionIdle(
  * @param config - Plugin configuration
  * @returns true if continue prompt should be injected
  */
-function shouldContinue(state: SessionState, config: PluginConfig): boolean {
+export function shouldContinue(state: SessionState, config: PluginConfig): boolean {
   // Feature disabled
   if (!state.divertBlockers) return false
 

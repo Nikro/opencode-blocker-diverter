@@ -15,7 +15,7 @@
 
 ### Fix applied
 1. Switched to **path spec**: `"./node_modules/opencode-blocker-diverter"` in both `tui.jsonc` and `opencode.jsonc`
-2. Installed local dev package: `cd /var/www/opencode-config && npm install /var/www/opencode-blocker-diverter`
+2. Installed local dev package: `cd /var/www/opencode-config && npm install /var/www/Tools/OpenCode/opencode-blocker-diverter`
 3. Deleted stale cache: `rm -rf ~/.cache/opencode/packages/opencode-blocker-diverter@latest`
 
 ### NEVER use bare npm specs in OpenCode config files
@@ -23,8 +23,12 @@ Bare specs hit OpenCode's private cache which may be arbitrarily stale and is NO
 
 ### Verification commands (run these, don't guess)
 ```bash
+# Quality gate (repo root: /var/www/Tools/OpenCode/opencode-blocker-diverter)
+bun run typecheck && bun test && bun run build
+node -e "import('./dist/index.js').then(m => console.log(Object.keys(m.default)))"   # expect: id, server, setup
+
 # After any change — verify module loads correctly
-cd /var/www/opencode-blocker-diverter && bun run verify
+cd /var/www/Tools/OpenCode/opencode-blocker-diverter && bun run verify
 
 # After OpenCode restart — confirm TUI loaded
 grep -i "blocker\|tui.plugin" $(ls -t ~/.local/share/opencode/log/*.log | head -1)
@@ -39,9 +43,15 @@ grep -i "blocker\|tui.plugin" $(ls -t ~/.local/share/opencode/log/*.log | head -
 ### Development loop
 ```bash
 bun run build                                        # rebuild after code changes
-cd /var/www/opencode-config && npm install /var/www/opencode-blocker-diverter  # update install
+cd /var/www/opencode-config && npm install /var/www/Tools/OpenCode/opencode-blocker-diverter  # update install
 # restart OpenCode, check logs
 ```
+
+### OpenCode 2.x (0.3.0+)
+- Design and trade-offs: `docs/adr/opencode-v2-port.md`. v2 code lives in `src/v2/`; v1 code is `src/core/`, `src/hooks/`, `src/tools/`, `tui.ts`.
+- v2 unit tests: `tests/v2/` (fake context). Real-load check: `oc2 --standalone run` logs must not contain `failed to load plugin`.
+- Do not use `oc2 plugin list` as a load check: it can print "No plugins found" before activation. Use logs or a server snapshot.
+- v2 logs go to `$XDG_STATE_HOME/opencode/blocker-diverter.log`.
 
 ⚠️ **IMPORTANT**: If implementation deviates from this guide, update this file AND `FINDINGS.md` immediately.
 

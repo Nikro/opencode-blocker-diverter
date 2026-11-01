@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "opencode-blocker-diverter",
-  "version": "0.2.9",
-  "description": "OpenCode plugin for autonomous overnight sessions — intercept blockers, continue work, review in the morning",
+  "version": "0.3.0",
+  "description": "OpenCode plugin for autonomous overnight sessions (OpenCode 1.x and 2.x) — intercept blockers, continue work, review in the morning",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
