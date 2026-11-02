@@ -16,7 +16,7 @@
  *     — the supported registration path without global config edits.
  */
 
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -403,6 +403,7 @@ export function bootstrap(targetDir, pkgDir) {
   const written  = [];
   const skipped  = [];
   const patched  = [];
+  const removed  = [];
 
   const record = (path, didWrite) =>
     didWrite ? written.push(path) : skipped.push(path);
@@ -447,13 +448,10 @@ export function bootstrap(targetDir, pkgDir) {
     ? join(targetDir, "commands")
     : join(targetDir, ".opencode", "commands");
 
-  const BLOCKER_COMMANDS = [
-    "blockers.on.md",
-    "blockers.off.md",
-    "blockers.status.md",
-    "blockers.list.md",
-    "blockers.clarify.md",
-  ];
+  // OpenCode 2.x runs /blockers.on, /blockers.off, /blockers.status and /blockers.stop from the
+  // plugin itself. A markdown file of the same name shadows the plugin command: the raw template
+  // goes to the model and divert is never switched on. Only the model-driven commands are seeded.
+  const BLOCKER_COMMANDS = ["blockers.list.md", "blockers.clarify.md"];
   for (const file of BLOCKER_COMMANDS) {
     const src = join(commandsSrc, file);
     const dest = join(commandsDest, file);
@@ -462,7 +460,19 @@ export function bootstrap(targetDir, pkgDir) {
     }
   }
 
-  return { written, skipped, patched };
+  // Earlier versions seeded the three toggle files. Remove a copy that is still byte-identical to
+  // the packaged one; a file the user edited is left alone.
+  const SHADOWING_COMMANDS = ["blockers.on.md", "blockers.off.md", "blockers.status.md"];
+  for (const file of SHADOWING_COMMANDS) {
+    const src = join(commandsSrc, file);
+    const dest = join(commandsDest, file);
+    if (existsSync(src) && existsSync(dest) && readFileSync(src, "utf8") === readFileSync(dest, "utf8")) {
+      unlinkSync(dest);
+      removed.push(dest);
+    }
+  }
+
+  return { written, skipped, patched, removed };
 }
 
 // ---- CLI entry point ----

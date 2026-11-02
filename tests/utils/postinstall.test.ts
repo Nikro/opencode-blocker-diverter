@@ -515,21 +515,21 @@ describe("bootstrap", () => {
     // Pre-seed a stale version of a command file in the dest.
     const commandsDest = join(tmpRoot, ".opencode", "commands");
     mkdirSync(commandsDest, { recursive: true });
-    writeFileSync(join(commandsDest, "blockers.on.md"), "# stale old content");
+    writeFileSync(join(commandsDest, "blockers.list.md"), "# stale old content");
 
     // Put source file in pkgDir so seeding would attempt to copy it.
     const commandsSrc = join(pkgDir, ".opencode", "commands");
     mkdirSync(commandsSrc, { recursive: true });
-    writeFileSync(join(commandsSrc, "blockers.on.md"), "# new content from package");
+    writeFileSync(join(commandsSrc, "blockers.list.md"), "# new content from package");
 
     bootstrap(tmpRoot, pkgDir);
 
     // File must remain untouched — copyIfMissing preserves user edits.
-    const content = readFileSync(join(commandsDest, "blockers.on.md"), "utf8");
+    const content = readFileSync(join(commandsDest, "blockers.list.md"), "utf8");
     expect(content).toBe("# stale old content");
   });
 
-  it("seeds command files to .opencode/commands/ for a regular project install", () => {
+  it("seeds only the model-driven command files for a regular project install", () => {
     writeFileSync(join(tmpRoot, "package.json"), JSON.stringify({ name: "my-app" }));
     // Provide source command files in pkgDir.
     const commandsSrc = join(pkgDir, ".opencode", "commands");
@@ -540,12 +540,34 @@ describe("bootstrap", () => {
 
     const { written } = bootstrap(tmpRoot, pkgDir);
 
-    // All 5 command files must be seeded.
-    for (const file of ["blockers.on.md", "blockers.off.md", "blockers.status.md", "blockers.list.md", "blockers.clarify.md"]) {
+    // list and clarify are seeded. on, off and status would shadow the plugin commands, so they are not.
+    for (const file of ["blockers.list.md", "blockers.clarify.md"]) {
       expect(existsSync(join(tmpRoot, ".opencode", "commands", file))).toBe(true);
     }
+    for (const file of ["blockers.on.md", "blockers.off.md", "blockers.status.md"]) {
+      expect(existsSync(join(tmpRoot, ".opencode", "commands", file))).toBe(false);
+    }
     const commandsWritten = written.filter((f) => f.includes("commands"));
-    expect(commandsWritten.length).toBe(5);
+    expect(commandsWritten.length).toBe(2);
+  });
+
+  it("removes unedited toggle command copies from earlier versions and keeps edited ones", () => {
+    writeFileSync(join(tmpRoot, "package.json"), JSON.stringify({ name: "my-app" }));
+    const commandsSrc = join(pkgDir, ".opencode", "commands");
+    const commandsDest = join(tmpRoot, ".opencode", "commands");
+    mkdirSync(commandsSrc, { recursive: true });
+    mkdirSync(commandsDest, { recursive: true });
+    for (const file of ["blockers.on.md", "blockers.off.md", "blockers.status.md"]) {
+      writeFileSync(join(commandsSrc, file), `# ${file}`);
+    }
+    writeFileSync(join(commandsDest, "blockers.on.md"), "# blockers.on.md");
+    writeFileSync(join(commandsDest, "blockers.off.md"), "# my own edit");
+
+    const { removed } = bootstrap(tmpRoot, pkgDir);
+
+    expect(existsSync(join(commandsDest, "blockers.on.md"))).toBe(false);
+    expect(readFileSync(join(commandsDest, "blockers.off.md"), "utf8")).toBe("# my own edit");
+    expect(removed).toEqual([join(commandsDest, "blockers.on.md")]);
   });
 });
 
@@ -682,15 +704,15 @@ describe("bootstrap (global config dir)", () => {
       // Provide source command files in pkgDir.
       const commandsSrc = join(pkgDir, ".opencode", "commands");
       mkdirSync(commandsSrc, { recursive: true });
-      for (const file of ["blockers.on.md", "blockers.off.md"]) {
+      for (const file of ["blockers.list.md", "blockers.clarify.md"]) {
         writeFileSync(join(commandsSrc, file), `# ${file}`);
       }
 
       const { written } = bootstrap(globalDir, pkgDir);
 
       // For global config dir, files go to commands/ at the root (not .opencode/commands/)
-      expect(existsSync(join(globalDir, "commands", "blockers.on.md"))).toBe(true);
-      expect(existsSync(join(globalDir, ".opencode", "commands", "blockers.on.md"))).toBe(false);
+      expect(existsSync(join(globalDir, "commands", "blockers.list.md"))).toBe(true);
+      expect(existsSync(join(globalDir, ".opencode", "commands", "blockers.list.md"))).toBe(false);
 
       const commandsWritten = written.filter((f) => f.includes("commands"));
       expect(commandsWritten.length).toBeGreaterThan(0);
@@ -709,12 +731,12 @@ describe("bootstrap (global config dir)", () => {
     // Provide source command files in pkgDir.
     const commandsSrc = join(pkgDir, ".opencode", "commands");
     mkdirSync(commandsSrc, { recursive: true });
-    writeFileSync(join(commandsSrc, "blockers.on.md"), "# blockers.on");
+    writeFileSync(join(commandsSrc, "blockers.list.md"), "# blockers.list");
 
     const { written } = bootstrap(tmpRoot, pkgDir);
 
-    expect(existsSync(join(tmpRoot, ".opencode", "commands", "blockers.on.md"))).toBe(true);
-    expect(existsSync(join(tmpRoot, "commands", "blockers.on.md"))).toBe(false);
+    expect(existsSync(join(tmpRoot, ".opencode", "commands", "blockers.list.md"))).toBe(true);
+    expect(existsSync(join(tmpRoot, "commands", "blockers.list.md"))).toBe(false);
 
     const commandsWritten = written.filter((f) => f.includes("commands"));
     expect(commandsWritten.length).toBeGreaterThan(0);
