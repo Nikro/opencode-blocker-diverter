@@ -5,7 +5,7 @@ All notable changes to the Blocker Diverter plugin will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-10-31
+## [0.3.1] - 2026-11-03
 
 ### Fixed
 - A reply to a continue prompt that landed inside `cooldownMs` was dropped, and because no further idle event follows, the loop ended. It is now retried once the cooldown is over (a new turn in between cancels the retry). This includes the idle right after `/blockers.on`, so the model can no longer stop after its confirmation reply.
@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The continue prompt is now a strict self-audit: re-check every requirement, look for unfinished tasks and open proposals, run tests and builds, choose defaults for questions instead of asking, and reply with the completion marker only when everything is verified.
+
+## [0.3.0] - 2026-10-31
 
 ### Added
 - **OpenCode 2.x support** (tested on 2.2.5). The default export is `{ id, server, setup }`: `server` is the 1.x entry (unchanged), `setup` is the 2.x entry. One package serves both. Design: `docs/adr/opencode-v2-port.md`.
