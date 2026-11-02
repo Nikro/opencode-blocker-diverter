@@ -95,6 +95,8 @@ npm link /path/to/opencode-blocker-diverter
 
 ## OpenCode 1.x and 2.x
 
+Versions: `0.2.x` is the OpenCode 1.x line (on the `opencode-1.x` branch); `0.3.x` is the OpenCode 2.x line (`main`). The TUI controls, toasts and Ctrl+B are 1.x only. A guard-triggered stop turns divert off, because OpenCode reports it as a user interrupt.
+
 Version 0.3.0 ships one package for both OpenCode lines. The default export has `{ id, server, setup }`: `server` is the 1.x entry, `setup` is the 2.x entry.
 
 **OpenCode 1.x** (path spec, unchanged): in `opencode.jsonc`
