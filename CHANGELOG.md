@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.0] - 2026-10-31
 
+### Fixed
+- A reply to a continue prompt that landed inside `cooldownMs` was dropped, and because no further idle event follows, the loop ended. It is now retried once the cooldown is over (a new turn in between cancels the retry). This includes the idle right after `/blockers.on`, so the model can no longer stop after its confirmation reply.
+- The installer no longer copies `blockers.on.md`, `blockers.off.md` and `blockers.status.md` into the config. On 2.x they shadowed the plugin commands: the raw template went to the model and divert was never switched on. An unedited copy from an earlier version is removed on install; an edited one is kept. `blockers.list.md` and `blockers.clarify.md` are still seeded.
+
+### Changed
+- The continue prompt is now a strict self-audit: re-check every requirement, look for unfinished tasks and open proposals, run tests and builds, choose defaults for questions instead of asking, and reply with the completion marker only when everything is verified.
+
 ### Added
 - **OpenCode 2.x support** (tested on 2.2.5). The default export is `{ id, server, setup }`: `server` is the 1.x entry (unchanged), `setup` is the 2.x entry. One package serves both. Design: `docs/adr/opencode-v2-port.md`.
 - v2 hooks: `blocker` tool (JSON Schema input), question interception, ask-to-allow permission (never deny), user-prompt auto-disable, system prompt and compaction summary.
