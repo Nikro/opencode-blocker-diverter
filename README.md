@@ -44,7 +44,7 @@ That's it. The `postinstall` script automatically:
 1. **Patches `opencode.jsonc`** (or `opencode.json`) in your project root to add `"./node_modules/opencode-blocker-diverter"` to `plugin` — creates the file if neither exists.
 2. **Patches `.opencode/tui.jsonc`** (or `.opencode/tui.json`) to add `"../node_modules/opencode-blocker-diverter"` so Ctrl+P/TUI commands load.
 3. Seeds `.opencode/blocker-diverter.json` — default config (edit freely).
-4. Seeds `.opencode/commands/blockers.*.md` — slash-command templates.
+4. Seeds `.opencode/commands/blockers.list.md` and `blockers.clarify.md` — slash-command templates. `/blockers.on`, `/blockers.off`, `/blockers.stop` and `/blockers.status` are plugin commands on 2.x and are not seeded, because a markdown command of the same name would shadow them.
 
 Then **restart OpenCode** and the plugin is active.
 
