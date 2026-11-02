@@ -199,6 +199,27 @@ export async function handleExecutionSucceeded(deps: V2SessionDeps, sessionID: s
 
   if (shouldContinue(state, config)) {
     await injectContinuePrompt(deps, sessionID)
+    return
+  }
+
+  // A fast reply to a real continue prompt can end inside the cooldown. No further idle event
+  // follows it, so dropping it would end the loop. Re-check once the cooldown is over. The wait is
+  // a detached timer, because events are handled one at a time and a sleep here would delay a user
+  // interrupt behind it. This also covers the idle right after /blockers.on, whose own cooldown
+  // would otherwise swallow it and let the model stop after its confirmation reply.
+  if (state.divertBlockers && state.repromptCount < config.maxReprompts) {
+    const remaining = config.cooldownMs - (Date.now() - (state.lastRepromptTime || 0))
+    if (remaining > 0) {
+      const before = state.lastMessageContent
+      const timer = setTimeout(() => {
+        const next = getState(sessionID)
+        // New assistant text means another turn began while waiting; its own idle event decides.
+        if (next.lastMessageContent === before && shouldContinue(next, config)) {
+          void injectContinuePrompt(deps, sessionID)
+        }
+      }, remaining + 50)
+      timer.unref?.()
+    }
   }
 }
 

@@ -497,6 +497,42 @@ describe('session lifecycle and continue prompts', () => {
     expect(reg.synthetics).toHaveLength(1)
   })
 
+  it('a reply inside the cooldown after a real continue prompt is retried, not dropped', async () => {
+    const { reg, sessionID, emit } = await start({ maxReprompts: 5, cooldownMs: 1000 })
+    getState(sessionID).divertBlockers = true
+
+    emit({ type: 'session.execution.succeeded', data: { sessionID } })
+    await settle()
+    expect(reg.synthetics).toHaveLength(1)
+
+    // The model answers fast: the next idle arrives well inside the 1s cooldown.
+    emit({ type: 'session.execution.succeeded', data: { sessionID } })
+    await settle()
+    expect(reg.synthetics).toHaveLength(1)
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    expect(reg.synthetics).toHaveLength(2)
+  })
+
+  it('a turn that starts during the cooldown wait cancels the retry', async () => {
+    const { reg, sessionID, emit } = await start({ maxReprompts: 5, cooldownMs: 1000 })
+    getState(sessionID).divertBlockers = true
+    emit({ type: 'session.execution.succeeded', data: { sessionID } })
+    await settle()
+    emit({ type: 'session.execution.succeeded', data: { sessionID } })
+    await settle()
+    emit({ type: 'session.text.ended', data: { sessionID, text: 'still working on it', assistantMessageID: 'a2' } })
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    expect(reg.synthetics).toHaveLength(1)
+  })
+
+  it('the idle right after /blockers.on is re-prompted once the cooldown is over', async () => {
+    const { reg, sessionID, emit } = await start({ maxReprompts: 5, cooldownMs: 1000 })
+    await findCommand(reg, 'blockers.on').execute({ sessionID, prompt: { text: '' }, delivery: 'steer' })
+    emit({ type: 'session.execution.succeeded', data: { sessionID } })
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    expect(reg.synthetics).toHaveLength(1)
+  })
+
   it('does not inject a continue prompt when divert is off', async () => {
     const { reg, sessionID, emit } = await start()
     emit({ type: 'session.execution.succeeded', data: { sessionID } })
