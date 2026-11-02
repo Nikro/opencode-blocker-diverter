@@ -192,7 +192,14 @@ export function getStopPrompt(
       parts: [
         {
           type: "text",
-          text: `Check the progress on current tasks. If there's more non-blocking work to do, continue. When all work is complete, say '${marker}'!`
+          text: [
+            "You stopped, but this session is in autonomous mode and you have not given the completion marker, so you are not done. Do not ask me anything. Audit your own work before you answer:",
+            "1. Re-read the original request and list every requirement in it. Check each one against what actually exists.",
+            "2. Look for unfinished work: your task list, TODOs, open proposals, decisions you deferred, anything you said you would do later, and anything you skipped because it looked hard.",
+            "3. Run the project's tests, linters, type checks and build, and read the real output. A claim that something works needs a command that shows it.",
+            "4. For every question you were about to ask me, choose the most reasonable default, record the choice and the reason in the blocker log, and keep going.",
+            "If anything remains, do it now and keep working. Only when every requirement is verified complete, and no task or proposal is left open, reply with exactly: " + marker,
+          ].join("\n"),
         }
       ]
     }

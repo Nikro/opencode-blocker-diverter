@@ -118,20 +118,22 @@ describe('templates utility', () => {
       expect(result.body.parts[0].text).not.toContain(DEFAULT_COMPLETION_MARKER)
     })
 
-    it('instructs agent to check progress', () => {
+    it('tells the agent it is not done and to audit unfinished work', () => {
       const result = getStopPrompt('test-session', mockConfig)
       const text = result.body.parts[0].text.toLowerCase()
-      
-      expect(text).toContain('progress')
+
+      expect(text).toContain('you are not done')
+      expect(text).toContain('open proposals')
+      expect(text).toContain('tests')
+      expect(text).toContain('do not ask me anything')
     })
 
     it('instructs agent to say completion marker', () => {
       const result = getStopPrompt('test-session', mockConfig)
       const text = result.body.parts[0].text
       
-      // Should instruct to "say" the marker
-      expect(text.toLowerCase()).toContain('say')
-      expect(text).toContain(mockConfig.completionMarker)
+      // The marker is the only way out, and it must be sent as the whole reply
+      expect(text).toContain(`reply with exactly: ${mockConfig.completionMarker}`)
     })
 
     it('text is non-empty string', () => {
